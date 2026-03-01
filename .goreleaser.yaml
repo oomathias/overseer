@@ -5,12 +5,14 @@ project_name: overseer
 
 before:
   hooks:
-    - rm -rf .goreleaser-artifacts/binaries
-    - mkdir -p .goreleaser-artifacts/binaries/darwin_arm64 .goreleaser-artifacts/binaries/darwin_amd64
-    - swift build -c release --arch arm64
-    - cp .build/arm64-apple-macosx/release/overseer .goreleaser-artifacts/binaries/darwin_arm64/overseer
-    - swift build -c release --arch x86_64
-    - cp .build/x86_64-apple-macosx/release/overseer .goreleaser-artifacts/binaries/darwin_amd64/overseer
+    - rm -rf .goreleaser-artifacts
+    - mkdir -p .goreleaser-artifacts/source .goreleaser-artifacts/binaries/darwin_arm64 .goreleaser-artifacts/binaries/darwin_amd64
+    - cp -R App Package.swift .goreleaser-artifacts/source/
+    - "python3 -c 'from pathlib import Path; Path(\".goreleaser-artifacts/source/App/Core/Version.swift\").write_text(\"import Foundation\\n\\nlet appVersion = \\\"{{ .Version }}\\\"\\n\")'"
+    - swift build -c release --arch arm64 --package-path .goreleaser-artifacts/source
+    - cp .goreleaser-artifacts/source/.build/arm64-apple-macosx/release/overseer .goreleaser-artifacts/binaries/darwin_arm64/overseer
+    - swift build -c release --arch x86_64 --package-path .goreleaser-artifacts/source
+    - cp .goreleaser-artifacts/source/.build/x86_64-apple-macosx/release/overseer .goreleaser-artifacts/binaries/darwin_amd64/overseer
 
 builds:
   - id: overseer
@@ -52,6 +54,7 @@ notarize:
 
 signs:
   - id: archives
+    cmd: cosign
     artifacts: archive
     signature: "${artifact}.sigstore.json"
     args:
@@ -60,6 +63,7 @@ signs:
       - "--bundle=${signature}"
       - "${artifact}"
   - id: checksum
+    cmd: cosign
     artifacts: checksum
     signature: "${artifact}.sigstore.json"
     args:

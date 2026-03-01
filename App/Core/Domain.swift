@@ -1,7 +1,6 @@
 import Foundation
 
 let appName = "overseer"
-let appVersion = "0.1.0"
 let serviceLabel = "io.m7b.overseer.agent"
 let defaultConfigPath = "~/.config/overseer/config.json"
 

@@ -9,9 +9,11 @@ BIN_NAME="overseer"
 # Supported env vars:
 # - OVERSEER_VERSION: release tag to install (default: latest)
 # - OVERSEER_INSTALL_DIR: destination directory (default: /usr/local/bin)
+# - OVERSEER_INSTALL_MODE: auto, source, or release (default: auto)
 # - OVERSEER_REQUIRE_SIGNATURE: signature mode (auto, 0, or 1; default: auto)
 VERSION="${OVERSEER_VERSION:-latest}"
 INSTALL_DIR="${OVERSEER_INSTALL_DIR:-/usr/local/bin}"
+INSTALL_MODE="${OVERSEER_INSTALL_MODE:-auto}"
 REQUIRE_SIGNATURE="${OVERSEER_REQUIRE_SIGNATURE:-auto}"
 
 abort() {
@@ -47,11 +49,79 @@ download_optional() {
   curl --fail --silent --location --proto '=https' --tlsv1.2 --retry 3 --retry-delay 1 "$url" -o "$out"
 }
 
+api_get() {
+  local url="$1"
+
+  case "$url" in
+    https://*) ;;
+    *) abort "refusing non-https URL: $url" ;;
+  esac
+
+  curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 --retry 3 --retry-delay 1 \
+    -H "Accept: application/vnd.github+json" \
+    "$url"
+}
+
 safe_member_path() {
   case "$1" in
     ""|/*|../*|*/../*|*"/.."|..|*\\*|*$'\n'*|*$'\r'*) return 1 ;;
     *) return 0 ;;
   esac
+}
+
+install_binary() {
+  local src_path="$1"
+
+  if [ ! -d "$INSTALL_DIR" ]; then
+    if ! mkdir -p "$INSTALL_DIR" >/dev/null 2>&1; then
+      if command -v sudo >/dev/null 2>&1; then
+        sudo mkdir -p "$INSTALL_DIR"
+      else
+        abort "failed to create install directory: $INSTALL_DIR"
+      fi
+    fi
+  fi
+
+  if [ -w "$INSTALL_DIR" ]; then
+    install -m 0755 "$src_path" "$INSTALL_DIR/$BIN_NAME"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo install -m 0755 "$src_path" "$INSTALL_DIR/$BIN_NAME"
+  else
+    abort "no permission to write ${INSTALL_DIR} (and sudo not available)"
+  fi
+}
+
+install_from_source() {
+  local ref="$1"
+  local tmpdir_source
+  local srcdir
+  local binary_path
+
+  need git
+  need swift
+
+  tmpdir_source="$(mktemp -d)"
+  trap 'rm -rf "$tmpdir_source"' EXIT
+  srcdir="$tmpdir_source/source"
+
+  printf "cloning %s (%s)\n" "$REPO" "$ref"
+  git clone --depth 1 --branch "$ref" "https://github.com/${REPO}.git" "$srcdir"
+
+  if [[ "$ref" == v* ]]; then
+    version_value="${ref#v}"
+    printf "injecting version %s\n" "$version_value"
+    printf 'import Foundation\n\nlet appVersion = "%s"\n' "$version_value" > "$srcdir/App/Core/Version.swift"
+  fi
+
+  printf "building release binary\n"
+  swift build -c release --package-path "$srcdir"
+
+  binary_path="$srcdir/.build/release/$BIN_NAME"
+  [ -x "$binary_path" ] || abort "build succeeded but binary was not found: $binary_path"
+
+  install_binary "$binary_path"
+  rm -rf "$tmpdir_source"
+  trap - EXIT
 }
 
 need curl
@@ -70,6 +140,11 @@ case "$(uname -m)" in
   x86_64|amd64) ARCH="amd64" ;;
   arm64|aarch64) ARCH="arm64" ;;
   *) abort "unsupported architecture: $(uname -m)" ;;
+esac
+
+case "$INSTALL_MODE" in
+  auto|source|release) ;;
+  *) abort "invalid OVERSEER_INSTALL_MODE: $INSTALL_MODE (expected auto, source, or release)" ;;
 esac
 
 case "$VERSION" in
@@ -98,9 +173,34 @@ case "$INSTALL_DIR" in
   *) abort "OVERSEER_INSTALL_DIR must be an absolute path: $INSTALL_DIR" ;;
 esac
 
+if [ "$INSTALL_MODE" = "auto" ]; then
+  if [ "$VERSION" = "latest" ]; then
+    INSTALL_MODE="source"
+  else
+    INSTALL_MODE="release"
+  fi
+fi
+
+if [ "$INSTALL_MODE" = "source" ]; then
+  if [ "$VERSION" = "latest" ]; then
+    repo_json="$(api_get "https://api.github.com/repos/${REPO}")"
+    REF="$(awk -F '"' '/"default_branch"[[:space:]]*:/ {print $4; exit}' <<<"$repo_json")"
+    [ -n "$REF" ] || REF="main"
+  elif [[ "$VERSION" == v* ]]; then
+    REF="$VERSION"
+  else
+    REF="v$VERSION"
+  fi
+
+  install_from_source "$REF"
+  printf "installed %s to %s\n" "$BIN_NAME" "$INSTALL_DIR/$BIN_NAME"
+  printf "done\n"
+  exit 0
+fi
+
 if [ "$VERSION" = "latest" ]; then
-  latest_release_json="$(curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 "https://api.github.com/repos/${REPO}/releases/latest")"
-  TAG="$(awk -F '"' '/"tag_name"[[:space:]]*:/ {print $4; exit}' <<<"$latest_release_json")"
+  release_json="$(api_get "https://api.github.com/repos/${REPO}/releases/latest")"
+  TAG="$(awk -F '"' '/"tag_name"[[:space:]]*:/ {print $4; exit}' <<<"$release_json")"
   [ -n "$TAG" ] || abort "failed to resolve latest release tag"
 else
   if [[ "$VERSION" == v* ]]; then
@@ -196,24 +296,7 @@ tar -xOf "$archive_path" "$member" >"$binary_path"
 [ -s "$binary_path" ] || abort "failed to extract binary payload"
 chmod 0755 "$binary_path"
 
-if [ ! -d "$INSTALL_DIR" ]; then
-  if ! mkdir -p "$INSTALL_DIR" >/dev/null 2>&1; then
-    if command -v sudo >/dev/null 2>&1; then
-      sudo mkdir -p "$INSTALL_DIR"
-    else
-      abort "failed to create install directory: $INSTALL_DIR"
-    fi
-  fi
-fi
-
-if [ -w "$INSTALL_DIR" ]; then
-  install -m 0755 "$binary_path" "$INSTALL_DIR/$BIN_NAME"
-elif command -v sudo >/dev/null 2>&1; then
-  sudo install -m 0755 "$binary_path" "$INSTALL_DIR/$BIN_NAME"
-else
-  abort "no permission to write ${INSTALL_DIR} (and sudo not available)"
-fi
+install_binary "$binary_path"
 
 printf "installed %s to %s\n" "$BIN_NAME" "$INSTALL_DIR/$BIN_NAME"
-
 printf "done\n"
