@@ -26,30 +26,39 @@ final class CommandRunner {
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
+        let stdoutHandle = stdoutPipe.fileHandleForReading
+        let stderrHandle = stderrPipe.fileHandleForReading
         process.standardInput = nil
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
-        do {
-            try process.run()
-        } catch {
-            throw OverseerError.commandFailed("failed to launch \(program): \(error.localizedDescription)")
-        }
-
         let stdoutBox = DataBox()
         let stderrBox = DataBox()
 
-        let readGroup = DispatchGroup()
-        readGroup.enter()
-        DispatchQueue.global(qos: .userInitiated).async {
-            stdoutBox.set(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
-            readGroup.leave()
+        stdoutHandle.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            if chunk.isEmpty {
+                handle.readabilityHandler = nil
+                return
+            }
+            stdoutBox.append(chunk, maxBytes: maxOutputBytes)
         }
 
-        readGroup.enter()
-        DispatchQueue.global(qos: .userInitiated).async {
-            stderrBox.set(stderrPipe.fileHandleForReading.readDataToEndOfFile())
-            readGroup.leave()
+        stderrHandle.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            if chunk.isEmpty {
+                handle.readabilityHandler = nil
+                return
+            }
+            stderrBox.append(chunk, maxBytes: maxOutputBytes)
+        }
+
+        do {
+            try process.run()
+        } catch {
+            stdoutHandle.readabilityHandler = nil
+            stderrHandle.readabilityHandler = nil
+            throw OverseerError.commandFailed("failed to launch \(program): \(error.localizedDescription)")
         }
 
         let waitSemaphore = DispatchSemaphore(value: 0)
@@ -68,17 +77,13 @@ final class CommandRunner {
             }
         }
 
-        readGroup.wait()
+        stdoutHandle.readabilityHandler = nil
+        stderrHandle.readabilityHandler = nil
+        stdoutHandle.closeFile()
+        stderrHandle.closeFile()
 
-        var stdoutData = stdoutBox.get()
-        var stderrData = stderrBox.get()
-
-        if stdoutData.count > maxOutputBytes {
-            stdoutData = Data(stdoutData.prefix(maxOutputBytes))
-        }
-        if stderrData.count > maxOutputBytes {
-            stderrData = Data(stderrData.prefix(maxOutputBytes))
-        }
+        let stdoutData = stdoutBox.get()
+        let stderrData = stderrBox.get()
 
         let stdout = String(decoding: stdoutData, as: UTF8.self)
         let stderr = String(decoding: stderrData, as: UTF8.self)
@@ -92,10 +97,20 @@ private final class DataBox: @unchecked Sendable {
     private let lock = NSLock()
     private var data = Data()
 
-    func set(_ value: Data) {
+    func append(_ value: Data, maxBytes: Int) {
         lock.lock()
-        data = value
-        lock.unlock()
+        defer { lock.unlock() }
+
+        if data.count >= maxBytes || value.isEmpty {
+            return
+        }
+
+        let remaining = maxBytes - data.count
+        if value.count > remaining {
+            data.append(value.prefix(remaining))
+        } else {
+            data.append(value)
+        }
     }
 
     func get() -> Data {

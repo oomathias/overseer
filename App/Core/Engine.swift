@@ -24,7 +24,7 @@ final class DecisionEngine {
         var effects: [EffectEvent] = []
         var matchedAny = false
 
-        let needsTreeRootLookup = config.onlyTreeRoots && config.rules.contains { $0.pidFileGlob == nil }
+        let needsTreeRootLookup = config.onlyTreeRoots
         let processByPID: [Int32: ProcessInfo] = needsTreeRootLookup
             ? Dictionary(uniqueKeysWithValues: processes.map { ($0.pid, $0) })
             : [:]
@@ -40,7 +40,6 @@ final class DecisionEngine {
                     continue
                 }
                 if needsTreeRootLookup,
-                   rule.pidFileGlob == nil,
                    !isTreeRootForRule(ruleProcess: rule.process, process: process, processByPID: processByPID)
                 {
                     continue
@@ -174,7 +173,7 @@ private func isTreeRootForRule(ruleProcess: String?, process: ProcessInfo, proce
 
     while parentPID > 0, hops < 256 {
         guard let parent = processByPID[parentPID] else {
-            break
+            return true
         }
         if processMatches(ruleProcess: ruleProcess, process: parent) {
             return false

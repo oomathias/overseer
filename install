@@ -1,0 +1,200 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+umask 022
+
+REPO="oomathias/overseer"
+BIN_NAME="overseer"
+
+# Supported env vars:
+# - OVERSEER_VERSION: release tag to install (default: latest)
+# - OVERSEER_INSTALL_DIR: destination directory (default: /usr/local/bin)
+# - OVERSEER_REQUIRE_SIGNATURE: signature mode (auto, 0, or 1; default: auto)
+VERSION="${OVERSEER_VERSION:-latest}"
+INSTALL_DIR="${OVERSEER_INSTALL_DIR:-/usr/local/bin}"
+REQUIRE_SIGNATURE="${OVERSEER_REQUIRE_SIGNATURE:-auto}"
+
+abort() {
+  printf "%s\n" "$1" >&2
+  exit 1
+}
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || abort "missing required command: $1"
+}
+
+download() {
+  local url="$1"
+  local out="$2"
+
+  case "$url" in
+    https://*) ;;
+    *) abort "refusing non-https URL: $url" ;;
+  esac
+
+  curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 --retry 3 --retry-delay 1 "$url" -o "$out"
+}
+
+download_optional() {
+  local url="$1"
+  local out="$2"
+
+  case "$url" in
+    https://*) ;;
+    *) abort "refusing non-https URL: $url" ;;
+  esac
+
+  curl --fail --silent --location --proto '=https' --tlsv1.2 --retry 3 --retry-delay 1 "$url" -o "$out"
+}
+
+safe_member_path() {
+  case "$1" in
+    ""|/*|../*|*/../*|*"/.."|..|*\\*|*$'\n'*|*$'\r'*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+need curl
+need swift
+need install
+need mktemp
+need awk
+need mkdir
+need tar
+
+case "$(uname -s)" in
+  Darwin) ;;
+  *) abort "overseer currently supports macOS only" ;;
+esac
+
+case "$VERSION" in
+  latest) ;;
+  ""|*[!A-Za-z0-9._+-]*) abort "invalid OVERSEER_VERSION: $VERSION" ;;
+  *) ;;
+esac
+
+case "$REQUIRE_SIGNATURE" in
+  auto)
+    if command -v cosign >/dev/null 2>&1; then
+      REQUIRE_SIGNATURE="1"
+    else
+      REQUIRE_SIGNATURE="0"
+    fi
+    ;;
+  0|1) ;;
+  *) abort "invalid OVERSEER_REQUIRE_SIGNATURE: $REQUIRE_SIGNATURE (expected auto, 0, or 1)" ;;
+esac
+
+if [ -z "$INSTALL_DIR" ]; then
+  abort "invalid OVERSEER_INSTALL_DIR"
+fi
+case "$INSTALL_DIR" in
+  /*) ;;
+  *) abort "OVERSEER_INSTALL_DIR must be an absolute path: $INSTALL_DIR" ;;
+esac
+
+if [ "$VERSION" = "latest" ]; then
+  latest_release_json="$(curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 "https://api.github.com/repos/${REPO}/releases/latest")"
+  TAG="$(awk -F '"' '/"tag_name"[[:space:]]*:/ {print $4; exit}' <<<"$latest_release_json")"
+  [ -n "$TAG" ] || abort "failed to resolve latest release tag"
+else
+  if [[ "$VERSION" == v* ]]; then
+    TAG="$VERSION"
+  else
+    TAG="v$VERSION"
+  fi
+fi
+
+ARCHIVE_VERSION="${TAG#v}"
+ARCHIVE="${BIN_NAME}_${ARCHIVE_VERSION}_source.tar.gz"
+BASE_URL="https://github.com/${REPO}/releases/download/${TAG}"
+
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+
+archive_path="${tmpdir}/${ARCHIVE}"
+checksum_path="${tmpdir}/checksums.txt"
+checksum_bundle_path="${tmpdir}/checksums.txt.sigstore.json"
+srcdir="${tmpdir}/source"
+
+printf "downloading %s\n" "$ARCHIVE"
+download "${BASE_URL}/${ARCHIVE}" "$archive_path"
+
+printf "downloading checksums.txt\n"
+download "${BASE_URL}/checksums.txt" "$checksum_path"
+
+printf "downloading checksums.txt.sigstore.json\n"
+if download_optional "${BASE_URL}/checksums.txt.sigstore.json" "$checksum_bundle_path"; then
+  if command -v cosign >/dev/null 2>&1; then
+    printf "verifying checksums signature\n"
+    cosign verify-blob \
+      --bundle "$checksum_bundle_path" \
+      --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+      --certificate-identity "https://github.com/${REPO}/.github/workflows/release.yml@refs/tags/${TAG}" \
+      "$checksum_path" >/dev/null 2>&1 || abort "checksums signature verification failed"
+  elif [ "$REQUIRE_SIGNATURE" = "1" ]; then
+    abort "cosign is required for signature verification (install cosign or set OVERSEER_REQUIRE_SIGNATURE=0)"
+  else
+    printf "warning: cosign not found; skipping checksums signature verification\n" >&2
+  fi
+elif [ "$REQUIRE_SIGNATURE" = "1" ]; then
+  abort "checksums signature not available for ${TAG}"
+else
+  printf "warning: checksums signature not available for ${TAG}; continuing with unsigned checksum\n" >&2
+fi
+
+expected="$(awk -v name="$ARCHIVE" '$2==name || $2=="*"name || $NF==name || $NF=="*"name {print $1; exit}' "$checksum_path")"
+[ -n "$expected" ] || abort "checksum missing for ${ARCHIVE}"
+case "$expected" in
+  *[!A-Fa-f0-9]*) abort "invalid checksum format for ${ARCHIVE}" ;;
+esac
+[ "${#expected}" -eq 64 ] || abort "unexpected checksum length for ${ARCHIVE}"
+
+if command -v shasum >/dev/null 2>&1; then
+  actual="$(shasum -a 256 "$archive_path" | awk '{print $1}')"
+elif command -v sha256sum >/dev/null 2>&1; then
+  actual="$(sha256sum "$archive_path" | awk '{print $1}')"
+else
+  abort "cannot verify checksum (shasum or sha256sum not found)"
+fi
+
+[ "$expected" = "$actual" ] || abort "checksum mismatch for ${ARCHIVE}"
+
+archive_members="$(tar -tzf "$archive_path")"
+while IFS= read -r member; do
+  [ -z "$member" ] && continue
+  safe_member_path "$member" || abort "unsafe path in archive: $member"
+done <<< "$archive_members"
+
+mkdir -p "$srcdir"
+tar -xzf "$archive_path" -C "$srcdir"
+
+[ -f "$srcdir/Package.swift" ] || abort "release archive does not contain Package.swift"
+
+printf "building release binary\n"
+swift build -c release --package-path "$srcdir"
+
+binary_path="$srcdir/.build/release/$BIN_NAME"
+[ -x "$binary_path" ] || abort "build succeeded but binary was not found: $binary_path"
+
+if [ ! -d "$INSTALL_DIR" ]; then
+  if ! mkdir -p "$INSTALL_DIR" >/dev/null 2>&1; then
+    if command -v sudo >/dev/null 2>&1; then
+      sudo mkdir -p "$INSTALL_DIR"
+    else
+      abort "failed to create install directory: $INSTALL_DIR"
+    fi
+  fi
+fi
+
+if [ -w "$INSTALL_DIR" ]; then
+  install -m 0755 "$binary_path" "$INSTALL_DIR/$BIN_NAME"
+elif command -v sudo >/dev/null 2>&1; then
+  sudo install -m 0755 "$binary_path" "$INSTALL_DIR/$BIN_NAME"
+else
+  abort "no permission to write ${INSTALL_DIR} (and sudo not available)"
+fi
+
+printf "installed %s to %s\n" "$BIN_NAME" "$INSTALL_DIR/$BIN_NAME"
+
+printf "done\n"

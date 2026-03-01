@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+project_name: overseer
+
+builds:
+  - skip: true
+
+archives:
+  - id: source
+    meta: true
+    name_template: "{{ .ProjectName }}_{{ .Version }}_source"
+    formats:
+      - tar.gz
+    files:
+      - App/**
+      - Package.swift
+      - README.md
+      - install
+
+checksum:
+  name_template: checksums.txt
+
+source:
+  enabled: false
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"

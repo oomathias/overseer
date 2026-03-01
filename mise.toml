@@ -1,0 +1,51 @@
+[tools]
+go = "1.26"
+goreleaser = "2.14.1"
+cosign = "latest"
+
+[settings]
+not_found_auto_install = true
+exec_auto_install = true
+
+[tasks.doctor]
+description = "Check required local tooling"
+run = "command -v swift >/dev/null && xcode-select -p >/dev/null"
+
+[tasks.build]
+description = "Build debug binary"
+depends = ["doctor"]
+run = "swift build"
+
+[tasks.build-release]
+description = "Build release binary"
+depends = ["doctor"]
+run = "swift build -c release"
+
+[tasks.run]
+description = "Run overseer help"
+depends = ["doctor"]
+run = "swift run overseer help"
+
+[tasks.overseer]
+description = "Run overseer with passthrough args"
+depends = ["doctor"]
+raw = true
+run = "swift run overseer"
+
+[tasks.install-local]
+description = "Install release binary to ~/.local/bin"
+depends = ["build-release"]
+run = "mkdir -p \"$HOME/.local/bin\" && install -m 0755 ./.build/release/overseer \"$HOME/.local/bin/overseer\""
+
+[tasks.release-check]
+description = "Validate GoReleaser configuration"
+run = "goreleaser check --config .goreleaser.yaml"
+
+[tasks.release-snapshot]
+description = "Run local snapshot release build"
+depends = ["doctor", "release-check"]
+run = "goreleaser release --snapshot --clean --skip=publish"
+
+[tasks.clean]
+description = "Clean Swift build artifacts"
+run = "swift package clean"

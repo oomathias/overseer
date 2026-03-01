@@ -22,6 +22,7 @@ xcuserdata/
 .build/
 .swiftpm/
 Packages/
+dist/
 
 # Playgrounds
 timeline.xctimeline

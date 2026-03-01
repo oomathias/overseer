@@ -39,7 +39,6 @@ final class ServiceManager {
 
         tryBootout(target: target)
         try runLaunchctlChecked(["bootstrap", domain, plistPath])
-        try runLaunchctlChecked(["kickstart", "-k", target])
     }
 
     func uninstall() throws {
@@ -55,11 +54,10 @@ final class ServiceManager {
     func start() throws {
         let domain = launchdDomain()
         let target = launchdTarget()
-        let firstTry = try runLaunchctl(["kickstart", "-k", target])
+        let firstTry = try runLaunchctl(["kickstart", target])
 
         if firstTry.timedOut || firstTry.exitCode != 0 {
             try runLaunchctlChecked(["bootstrap", domain, launchdPlistPath()])
-            try runLaunchctlChecked(["kickstart", "-k", target])
         }
     }
 
@@ -74,7 +72,6 @@ final class ServiceManager {
 
         tryBootout(target: target)
         try runLaunchctlChecked(["bootstrap", domain, plistPath])
-        try runLaunchctlChecked(["kickstart", "-k", target])
     }
 
     func status() throws -> String {
@@ -132,7 +129,15 @@ final class ServiceManager {
     }
 
     private func resolveServiceExecutablePath() throws -> String {
-        try resolveBundledExecutableForService()
+        if let executablePath = Bundle.main.executablePath {
+            return resolveAbsolutePath(executablePath)
+        }
+
+        if let firstArgument = CommandLine.arguments.first, !firstArgument.isEmpty {
+            return resolveAbsolutePath(firstArgument)
+        }
+
+        throw OverseerError.system("failed to resolve executable path for launchd service")
     }
 
     private func writeLaunchAgentPlist(
@@ -145,7 +150,7 @@ final class ServiceManager {
     ) throws {
         let plist: [String: Any] = [
             "Label": serviceLabel,
-            "ProgramArguments": [executablePath, "--config", configPath],
+            "ProgramArguments": [executablePath, "--config", configPath, "--quiet", "--no-live"],
             "WorkingDirectory": workingDirectory,
             "RunAtLoad": true,
             "KeepAlive": true,
