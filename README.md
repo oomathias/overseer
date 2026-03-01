@@ -59,6 +59,8 @@ Script options:
 - `OVERSEER_INSTALL_DIR=/absolute/path` (default: `/usr/local/bin`)
 - `OVERSEER_REQUIRE_SIGNATURE=auto|0|1` (default: `auto`)
 
+The script installs a prebuilt binary for your macOS architecture and verifies checksums. If `cosign` is available (or `OVERSEER_REQUIRE_SIGNATURE=1`), it also verifies Sigstore bundles for the archive and checksums.
+
 Manual install from source:
 
 ```bash
@@ -143,11 +145,21 @@ Releases are automated with GoReleaser on Git tags that match `v*`.
 
 - Workflow: `.github/workflows/release.yml`
 - Config: `.goreleaser.yaml`
+- Artifacts: `overseer_<version>_darwin_arm64.tar.gz`, `overseer_<version>_darwin_amd64.tar.gz`
+- Signatures: Sigstore bundles for each archive plus `checksums.txt.sigstore.json`
+
+For Apple code-sign + notarization (same model as `snav`), configure these GitHub Actions repository secrets:
+
+- `MACOS_SIGN_P12`
+- `MACOS_SIGN_PASSWORD`
+- `MACOS_NOTARY_KEY`
+- `MACOS_NOTARY_KEY_ID`
+- `MACOS_NOTARY_ISSUER_ID`
 
 Local dry run:
 
 ```bash
-goreleaser release --snapshot --clean --skip=publish
+goreleaser release --snapshot --clean --skip=publish,sign
 ```
 
 ## Notes

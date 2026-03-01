@@ -23,6 +23,7 @@ xcuserdata/
 .swiftpm/
 Packages/
 dist/
+.goreleaser-artifacts/
 
 # Playgrounds
 timeline.xctimeline

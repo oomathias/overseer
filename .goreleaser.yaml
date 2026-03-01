@@ -3,23 +3,70 @@ version: 2
 
 project_name: overseer
 
+before:
+  hooks:
+    - rm -rf .goreleaser-artifacts/binaries
+    - mkdir -p .goreleaser-artifacts/binaries/darwin_arm64 .goreleaser-artifacts/binaries/darwin_amd64
+    - swift build -c release --arch arm64
+    - cp .build/arm64-apple-macosx/release/overseer .goreleaser-artifacts/binaries/darwin_arm64/overseer
+    - swift build -c release --arch x86_64
+    - cp .build/x86_64-apple-macosx/release/overseer .goreleaser-artifacts/binaries/darwin_amd64/overseer
+
 builds:
-  - skip: true
+  - id: overseer
+    skip: true
 
 archives:
-  - id: source
+  - id: overseer-darwin-arm64
     meta: true
-    name_template: "{{ .ProjectName }}_{{ .Version }}_source"
+    name_template: "{{ .ProjectName }}_{{ .Version }}_darwin_arm64"
     formats:
       - tar.gz
     files:
-      - App/**
-      - Package.swift
-      - README.md
-      - install
+      - src: .goreleaser-artifacts/binaries/darwin_arm64/overseer
+        dst: overseer
+  - id: overseer-darwin-amd64
+    meta: true
+    name_template: "{{ .ProjectName }}_{{ .Version }}_darwin_amd64"
+    formats:
+      - tar.gz
+    files:
+      - src: .goreleaser-artifacts/binaries/darwin_amd64/overseer
+        dst: overseer
 
 checksum:
   name_template: checksums.txt
+
+notarize:
+  macos:
+    - enabled: '{{ isEnvSet "MACOS_SIGN_P12" }}'
+      ids:
+        - overseer
+      sign:
+        certificate: "{{ .Env.MACOS_SIGN_P12 }}"
+        password: "{{ .Env.MACOS_SIGN_PASSWORD }}"
+      notarize:
+        issuer_id: "{{ .Env.MACOS_NOTARY_ISSUER_ID }}"
+        key_id: "{{ .Env.MACOS_NOTARY_KEY_ID }}"
+        key: "{{ .Env.MACOS_NOTARY_KEY }}"
+
+signs:
+  - id: archives
+    artifacts: archive
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - "--yes"
+      - "--bundle=${signature}"
+      - "${artifact}"
+  - id: checksum
+    artifacts: checksum
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - "--yes"
+      - "--bundle=${signature}"
+      - "${artifact}"
 
 source:
   enabled: false

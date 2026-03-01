@@ -44,7 +44,7 @@ run = "goreleaser check --config .goreleaser.yaml"
 [tasks.release-snapshot]
 description = "Run local snapshot release build"
 depends = ["doctor", "release-check"]
-run = "goreleaser release --snapshot --clean --skip=publish"
+run = "goreleaser release --snapshot --clean --skip=publish,sign"
 
 [tasks.clean]
 description = "Clean Swift build artifacts"
