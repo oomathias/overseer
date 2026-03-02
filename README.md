@@ -19,7 +19,6 @@ https://github.com/user-attachments/assets/45c6b1ce-6ddb-4f92-96c2-fd662ec62ab2
 ## Requirements
 
 - macOS 13+
-- Xcode Command Line Tools (Swift)
 
 ## Install
 
@@ -33,7 +32,7 @@ overseer version
 Install a specific release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/oomathias/overseer/main/install | OVERSEER_VERSION=v0.2.0 bash
+curl -fsSL https://raw.githubusercontent.com/oomathias/overseer/main/install | OVERSEER_VERSION=vX.Y.Z bash
 ```
 
 Install to a custom path:

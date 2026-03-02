@@ -9,11 +9,9 @@ BIN_NAME="overseer"
 # Supported env vars:
 # - OVERSEER_VERSION: release tag to install (default: latest)
 # - OVERSEER_INSTALL_DIR: destination directory (default: /usr/local/bin)
-# - OVERSEER_INSTALL_MODE: auto, source, or release (default: auto)
 # - OVERSEER_REQUIRE_SIGNATURE: signature mode (auto, 0, or 1; default: auto)
 VERSION="${OVERSEER_VERSION:-latest}"
 INSTALL_DIR="${OVERSEER_INSTALL_DIR:-/usr/local/bin}"
-INSTALL_MODE="${OVERSEER_INSTALL_MODE:-auto}"
 REQUIRE_SIGNATURE="${OVERSEER_REQUIRE_SIGNATURE:-auto}"
 
 abort() {
@@ -91,39 +89,6 @@ install_binary() {
   fi
 }
 
-install_from_source() {
-  local ref="$1"
-  local tmpdir_source
-  local srcdir
-  local binary_path
-
-  need git
-  need swift
-
-  tmpdir_source="$(mktemp -d)"
-  trap 'rm -rf "$tmpdir_source"' EXIT
-  srcdir="$tmpdir_source/source"
-
-  printf "cloning %s (%s)\n" "$REPO" "$ref"
-  git clone --depth 1 --branch "$ref" "https://github.com/${REPO}.git" "$srcdir"
-
-  if [[ "$ref" == v* ]]; then
-    version_value="${ref#v}"
-    printf "injecting version %s\n" "$version_value"
-    printf 'import Foundation\n\nlet appVersion = "%s"\n' "$version_value" > "$srcdir/App/Core/Version.swift"
-  fi
-
-  printf "building release binary\n"
-  swift build -c release --package-path "$srcdir"
-
-  binary_path="$srcdir/.build/release/$BIN_NAME"
-  [ -x "$binary_path" ] || abort "build succeeded but binary was not found: $binary_path"
-
-  install_binary "$binary_path"
-  rm -rf "$tmpdir_source"
-  trap - EXIT
-}
-
 need curl
 need install
 need mktemp
@@ -142,16 +107,15 @@ case "$(uname -m)" in
   *) abort "unsupported architecture: $(uname -m)" ;;
 esac
 
-case "$INSTALL_MODE" in
-  auto|source|release) ;;
-  *) abort "invalid OVERSEER_INSTALL_MODE: $INSTALL_MODE (expected auto, source, or release)" ;;
-esac
-
 case "$VERSION" in
   latest) ;;
   ""|*[!A-Za-z0-9._+-]*) abort "invalid OVERSEER_VERSION: $VERSION" ;;
   *) ;;
 esac
+
+if [ -n "${OVERSEER_INSTALL_MODE:-}" ]; then
+  abort "OVERSEER_INSTALL_MODE is not supported; installer always uses release artifacts"
+fi
 
 case "$REQUIRE_SIGNATURE" in
   auto)
@@ -172,31 +136,6 @@ case "$INSTALL_DIR" in
   /*) ;;
   *) abort "OVERSEER_INSTALL_DIR must be an absolute path: $INSTALL_DIR" ;;
 esac
-
-if [ "$INSTALL_MODE" = "auto" ]; then
-  if [ "$VERSION" = "latest" ]; then
-    INSTALL_MODE="source"
-  else
-    INSTALL_MODE="release"
-  fi
-fi
-
-if [ "$INSTALL_MODE" = "source" ]; then
-  if [ "$VERSION" = "latest" ]; then
-    repo_json="$(api_get "https://api.github.com/repos/${REPO}")"
-    REF="$(awk -F '"' '/"default_branch"[[:space:]]*:/ {print $4; exit}' <<<"$repo_json")"
-    [ -n "$REF" ] || REF="main"
-  elif [[ "$VERSION" == v* ]]; then
-    REF="$VERSION"
-  else
-    REF="v$VERSION"
-  fi
-
-  install_from_source "$REF"
-  printf "installed %s to %s\n" "$BIN_NAME" "$INSTALL_DIR/$BIN_NAME"
-  printf "done\n"
-  exit 0
-fi
 
 if [ "$VERSION" = "latest" ]; then
   release_json="$(api_get "https://api.github.com/repos/${REPO}/releases/latest")"
