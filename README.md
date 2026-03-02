@@ -2,27 +2,23 @@
   <img src="assets/icon.jpg" alt="Overseer icon" width="240" />
 </p>
 
-<p align="center"><strong>Overseer CLI</strong></p>
+<p align="center"><strong>Overseer</strong></p>
 
-<p align="center"><em>Overseer is a macOS process monitor you run as a daemon or TUI.</em></p>
+<p align="center"><em>Overseer is a macOS process monitor you run as a daemon or TUI</em></p>
 
 ## But why?
 
-Apps and AI agents can leak memory, especially in long-running browser-based sessions.
+Today's apps and AI agents often leak memory, leave child processes behind, or get stuck in high-CPU loops.
 
-Overseer does not fix bad apps; it is a convenience failsafe for people who keep killing runaway processes manually.
+Overseer does not fix bad apps. It is a convenience failsafe for people who keep killing runaway processes manually.
 
-Set CPU, memory, and runtime limits to auto-notify or kill before your machine slows down.
+Set CPU, memory, and runtime limits to notify or kill processes before your machine slows down.
 
 https://github.com/user-attachments/assets/45c6b1ce-6ddb-4f92-96c2-fd662ec62ab2
 
-## Requirements
-
-- macOS 13+
-
 ## Install
 
-Install latest:
+Install the latest release:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/oomathias/overseer/main/install | bash
@@ -49,7 +45,7 @@ Default config path:
 ~/.config/overseer/config.json
 ```
 
-Example covering all supported metrics and actions:
+Example config covering all supported metrics and actions:
 
 ```json
 {
@@ -95,11 +91,11 @@ Example covering all supported metrics and actions:
 
 Each item in `rules` supports these fields:
 
-- `process` (optional, default: `null`): process name pattern to match against the process command/name.
+- `process` (optional, default: `null`): process name pattern to match against the process command or name.
 - `pid_file_glob` (optional, default: not set): glob pattern for PID files. When set, the rule applies only to PIDs from matching files.
 - `metric` (required): one of `cpu_percent`, `memory_mb`, or `runtime_seconds`.
 - `threshold` (required): numeric threshold for the selected metric.
-- `for_seconds` (optional, default: `0`): action only fires after this duration stays above threshold.
+- `for_seconds` (optional, default: `0`): action fires only after this duration remains above threshold.
 - `action` (required): `notify` or `kill`.
 - `signal` (optional, default: `term`): `term`, `kill`, or `int`. Used only with `kill`.
 - `cooldown_seconds` (optional, default: `60` for `notify`, `0` for `kill`): minimum seconds between repeated actions.
@@ -110,16 +106,10 @@ Global options live at the top level of the config and apply to all rules:
 
 - `poll_interval_seconds` (default: `5`): poll interval in seconds.
 - `only_tree_roots` (default: `true`): if `true`, evaluate only tree-root processes for each rule.
-- `warning_threshold` (default: `0`): warn at this percentage of threshold (e.g. `90` for 90%).
+- `warning_threshold` (default: `0`): warn when a metric reaches this percentage of the threshold (e.g. `90` for 90%).
 - `notify_on_kill` (default: `true`): if `true`, show a notification for kill actions.
 
 ## Usage
-
-Show help:
-
-```bash
-overseer help
-```
 
 Validate config:
 
@@ -127,25 +117,13 @@ Validate config:
 overseer validate --config ~/.config/overseer/config.json
 ```
 
-Run monitor in foreground:
+Run monitor in the foreground:
 
 ```bash
-overseer monitor --config ~/.config/overseer/config.json --verbose --live
+overseer monitor --config ~/.config/overseer/config.json
 ```
 
-Disable live single-tick updates:
-
-```bash
-overseer monitor --config ~/.config/overseer/config.json --verbose --no-live
-```
-
-Compatibility mode (same as monitor):
-
-```bash
-overseer --config ~/.config/overseer/config.json --quiet
-```
-
-Manage launchd service:
+Manage the launchd service:
 
 ```bash
 overseer service install --config ~/.config/overseer/config.json
@@ -158,4 +136,4 @@ overseer service uninstall
 ## Notes
 
 - Press `Ctrl+C` to stop foreground monitoring.
-- For persistent/background monitoring, prefer `overseer service install`.
+- For persistent background monitoring, prefer `overseer service install`.
