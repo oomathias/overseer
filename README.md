@@ -14,8 +14,6 @@ Overseer does not fix bad apps; it is a convenience failsafe for people who keep
 
 Set CPU, memory, and runtime limits to auto-notify or kill before your machine slows down.
 
-## Video
-
 https://github.com/user-attachments/assets/45c6b1ce-6ddb-4f92-96c2-fd662ec62ab2
 
 ## Requirements
