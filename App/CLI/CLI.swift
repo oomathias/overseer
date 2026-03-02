@@ -305,7 +305,7 @@ private final class CLILogRenderer {
             .filter { $0.status == "ok" }
             .sorted { $0.ratio > $1.ratio }
 
-        let hotDisplay = violating.prefix(12)
+        let hotDisplay = violating
         let healthyProcesses = healthyProcesses(from: ok)
         let startupPrefix = startupSummaryLine().map { "\($0)  |  " } ?? ""
         let summary = "\(startupPrefix)tracks: \(trackEntries.count)  hot: \(violating.count)  ok: \(ok.count)  pids: \(healthyProcesses.count)  logs: \(nonTrackEntries.count)"
@@ -321,20 +321,13 @@ private final class CLILogRenderer {
             for item in hotDisplay {
                 detailLines.append(formatTrack(item, hot: true))
             }
-            if violating.count > hotDisplay.count {
-                detailLines.append(style("... \(violating.count - hotDisplay.count) hot entries hidden", color: .dim))
-            }
         }
 
         if !healthyProcesses.isEmpty {
-            let maxOkLines = 12
-            let shown = min(healthyProcesses.count, maxOkLines)
+            let shown = healthyProcesses.count
             detailLines.append(style("Healthy pids (showing \(shown)/\(healthyProcesses.count))", color: .green, bold: true))
-            for item in healthyProcesses.prefix(maxOkLines) {
+            for item in healthyProcesses {
                 detailLines.append(formatProcessHealth(item, hot: false))
-            }
-            if healthyProcesses.count > maxOkLines {
-                detailLines.append(style("... \(healthyProcesses.count - maxOkLines) healthy pids hidden", color: .dim))
             }
         }
 

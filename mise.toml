@@ -21,11 +21,6 @@ description = "Build release binary"
 depends = ["doctor"]
 run = "swift build -c release"
 
-[tasks.run]
-description = "Run overseer help"
-depends = ["doctor"]
-run = "swift run overseer help"
-
 [tasks.overseer]
 description = "Run overseer with passthrough args"
 depends = ["doctor"]
@@ -34,6 +29,11 @@ run = "swift run overseer"
 
 [tasks.install-local]
 description = "Install release binary to ~/.local/bin"
+depends = ["build-release"]
+run = "mkdir -p \"$HOME/.local/bin\" && install -m 0755 ./.build/release/overseer \"$HOME/.local/bin/overseer\""
+
+[tasks.link]
+description = "Build release binary and install to ~/.local/bin"
 depends = ["build-release"]
 run = "mkdir -p \"$HOME/.local/bin\" && install -m 0755 ./.build/release/overseer \"$HOME/.local/bin/overseer\""
 

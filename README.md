@@ -1,6 +1,24 @@
 # Overseer CLI
 
+<p align="center">
+  <img src="assets/icon.jpg" alt="Overseer icon" width="240" />
+</p>
+
 Overseer is a macOS process monitor you run from the command line.
+
+## Why use it?
+
+Apps and AI agents can leak memory, especially in long-running browser-based sessions.
+
+Overseer does not fix bad apps; it is a convenience failsafe for people who keep killing runaway processes manually.
+
+Set CPU, memory, and runtime limits to auto-notify or kill before your machine slows down.
+
+## Video
+
+```text
+Demo video coming soon.
+```
 
 ## Requirements
 
@@ -36,7 +54,7 @@ Default config path:
 ~/.config/overseer/config.json
 ```
 
-Minimal example:
+Example covering all supported metrics and actions:
 
 ```json
 {
@@ -46,10 +64,24 @@ Minimal example:
   "notify_on_kill": true,
   "rules": [
     {
-      "process": "SomeProcess",
+      "process": "ai_agent",
       "metric": "cpu_percent",
       "threshold": 90,
       "for_seconds": 10,
+      "action": "notify"
+    },
+    {
+      "process": "my_terminal",
+      "metric": "memory_mb",
+      "threshold": 4096,
+      "for_seconds": 30,
+      "action": "kill",
+      "signal": "term"
+    },
+    {
+      "process": "chrome_headless",
+      "metric": "runtime_seconds",
+      "threshold": 7200,
       "action": "notify"
     }
   ]
