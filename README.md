@@ -1,10 +1,10 @@
-# Overseer CLI
-
 <p align="center">
   <img src="assets/icon.jpg" alt="Overseer icon" width="240" />
 </p>
 
-Overseer is a macOS process monitor you run from the command line.
+<p align="center"><strong>Overseer CLI</strong></p>
+
+<p align="center"><em>Overseer is a macOS process monitor you run as a daemon or TUI.</em></p>
 
 ## Why use it?
 
@@ -16,9 +16,7 @@ Set CPU, memory, and runtime limits to auto-notify or kill before your machine s
 
 ## Video
 
-```text
-Demo video coming soon.
-```
+https://github.com/user-attachments/assets/45c6b1ce-6ddb-4f92-96c2-fd662ec62ab2
 
 ## Requirements
 
