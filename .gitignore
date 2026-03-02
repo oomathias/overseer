@@ -1,30 +1,14 @@
-# macOS
+# OS
 .DS_Store
 
-# Xcode
-build/
-DerivedData/
-*.pbxuser
-!default.pbxuser
-*.mode1v3
-!default.mode1v3
-*.mode2v3
-!default.mode2v3
-*.perspectivev3
-!default.perspectivev3
-xcuserdata/
-*.xccheckout
-*.moved-aside
-*.xcuserstate
-*.xcscmblueprint
-
-# Swift Package Manager
+# Swift / Xcode
 .build/
 .swiftpm/
 Packages/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# Release artifacts
 dist/
 .goreleaser-artifacts/
-
-# Playgrounds
-timeline.xctimeline
-playground.xcworkspace
