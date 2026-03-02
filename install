@@ -113,10 +113,6 @@ case "$VERSION" in
   *) ;;
 esac
 
-if [ -n "${OVERSEER_INSTALL_MODE:-}" ]; then
-  abort "OVERSEER_INSTALL_MODE is not supported; installer always uses release artifacts"
-fi
-
 case "$REQUIRE_SIGNATURE" in
   auto)
     if command -v cosign >/dev/null 2>&1; then
@@ -157,33 +153,12 @@ tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 
 archive_path="${tmpdir}/${ARCHIVE}"
-archive_bundle_path="${tmpdir}/${ARCHIVE}.sigstore.json"
 checksum_path="${tmpdir}/checksums.txt"
 checksum_bundle_path="${tmpdir}/checksums.txt.sigstore.json"
 binary_path="${tmpdir}/${BIN_NAME}"
 
 printf "downloading %s\n" "$ARCHIVE"
 download "${BASE_URL}/${ARCHIVE}" "$archive_path"
-
-printf "downloading %s.sigstore.json\n" "$ARCHIVE"
-if download_optional "${BASE_URL}/${ARCHIVE}.sigstore.json" "$archive_bundle_path"; then
-  if command -v cosign >/dev/null 2>&1; then
-    printf "verifying archive signature\n"
-    cosign verify-blob \
-      --bundle "$archive_bundle_path" \
-      --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-      --certificate-identity "https://github.com/${REPO}/.github/workflows/release.yml@refs/tags/${TAG}" \
-      "$archive_path" >/dev/null 2>&1 || abort "archive signature verification failed"
-  elif [ "$REQUIRE_SIGNATURE" = "1" ]; then
-    abort "cosign is required for signature verification (install cosign or set OVERSEER_REQUIRE_SIGNATURE=0)"
-  else
-    printf "warning: cosign not found; skipping archive signature verification\n" >&2
-  fi
-elif [ "$REQUIRE_SIGNATURE" = "1" ]; then
-  abort "archive signature not available for ${ARCHIVE}"
-else
-  printf "warning: archive signature not available for ${ARCHIVE}; continuing with unsigned archive\n" >&2
-fi
 
 printf "downloading checksums.txt\n"
 download "${BASE_URL}/checksums.txt" "$checksum_path"

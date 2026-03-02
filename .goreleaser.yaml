@@ -56,15 +56,6 @@ notarize:
         key: "{{ .Env.MACOS_NOTARY_KEY }}"
 
 signs:
-  - id: archives
-    cmd: cosign
-    artifacts: archive
-    signature: "${artifact}.sigstore.json"
-    args:
-      - sign-blob
-      - "--yes"
-      - "--bundle=${signature}"
-      - "${artifact}"
   - id: checksum
     cmd: cosign
     artifacts: checksum
