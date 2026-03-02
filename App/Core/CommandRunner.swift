@@ -35,23 +35,8 @@ final class CommandRunner {
         let stdoutBox = DataBox()
         let stderrBox = DataBox()
 
-        stdoutHandle.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            if chunk.isEmpty {
-                handle.readabilityHandler = nil
-                return
-            }
-            stdoutBox.append(chunk, maxBytes: maxOutputBytes)
-        }
-
-        stderrHandle.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            if chunk.isEmpty {
-                handle.readabilityHandler = nil
-                return
-            }
-            stderrBox.append(chunk, maxBytes: maxOutputBytes)
-        }
+        configureOutputReader(handle: stdoutHandle, output: stdoutBox, maxBytes: maxOutputBytes)
+        configureOutputReader(handle: stderrHandle, output: stderrBox, maxBytes: maxOutputBytes)
 
         do {
             try process.run()
@@ -90,6 +75,17 @@ final class CommandRunner {
         let exitCode: Int32 = timedOut ? -1 : process.terminationStatus
 
         return CommandOutput(stdout: stdout, stderr: stderr, exitCode: exitCode, timedOut: timedOut)
+    }
+
+    private func configureOutputReader(handle: FileHandle, output: DataBox, maxBytes: Int) {
+        handle.readabilityHandler = { source in
+            let chunk = source.availableData
+            if chunk.isEmpty {
+                source.readabilityHandler = nil
+                return
+            }
+            output.append(chunk, maxBytes: maxBytes)
+        }
     }
 }
 

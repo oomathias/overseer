@@ -124,3 +124,20 @@ struct DecisionOutput {
     let effects: [EffectEvent]
     let matchedAny: Bool
 }
+
+func normalizedProcessFilter(_ value: String?) -> String? {
+    guard let value else {
+        return nil
+    }
+
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.isEmpty {
+        return nil
+    }
+
+    return trimmed
+}
+
+func fixed2(_ value: Double) -> String {
+    String(format: "%.2f", value)
+}

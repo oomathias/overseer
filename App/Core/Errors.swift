@@ -13,17 +13,12 @@ enum OverseerError: Error, CustomStringConvertible {
         switch self {
         case .handled:
             return "handled"
-        case let .invalidArguments(message):
-            return message
-        case let .invalidConfig(message):
-            return message
-        case let .io(message):
-            return message
-        case let .commandTimedOut(message):
-            return message
-        case let .commandFailed(message):
-            return message
-        case let .system(message):
+        case let .invalidArguments(message),
+             let .invalidConfig(message),
+             let .io(message),
+             let .commandTimedOut(message),
+             let .commandFailed(message),
+             let .system(message):
             return message
         }
     }

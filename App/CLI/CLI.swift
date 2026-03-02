@@ -60,9 +60,9 @@ struct OverseerCLI {
         print("config ok")
         print("rules: \(config.rules.count)")
         print("poll_interval_seconds: \(config.pollIntervalSeconds)")
-        print("only_tree_roots: \(config.onlyTreeRoots ? "true" : "false")")
+        print("only_tree_roots: \(config.onlyTreeRoots)")
         print("warning_threshold: \(config.warningThreshold)")
-        print("notify_on_kill: \(config.notifyOnKill ? "true" : "false")")
+        print("notify_on_kill: \(config.notifyOnKill)")
     }
 
     private static func runMonitor(options: CLIOptions) async throws {
@@ -105,10 +105,7 @@ struct OverseerCLI {
         guard let term = env["TERM"], !term.isEmpty, term != "dumb" else {
             return false
         }
-        if env["CI"] != nil {
-            return false
-        }
-        return true
+        return env["CI"] == nil
     }
 
     private static func runService(arguments: [String]) throws {
@@ -327,7 +324,7 @@ private final class CLILogRenderer {
             let shown = healthyProcesses.count
             detailLines.append(style("Healthy pids (showing \(shown)/\(healthyProcesses.count))", color: .green, bold: true))
             for item in healthyProcesses {
-                detailLines.append(formatProcessHealth(item, hot: false))
+                detailLines.append(formatProcessHealth(item))
             }
         }
 
@@ -353,7 +350,7 @@ private final class CLILogRenderer {
         case .info:
             return formatInfo(message: message, compact: compact)
         case .warning:
-            return formatWarning(message: message, compact: compact)
+            return formatWarning(message: message)
         }
     }
 
@@ -363,37 +360,36 @@ private final class CLILogRenderer {
                 return formatTrack(track, hot: track.status == "violating")
             }
             if message.contains("status=violating") {
-                return styledPrefix("HOT", color: .yellow, compact: compact) + message
+                return styledPrefix("HOT", color: .yellow) + message
             }
             if message.contains("status=ok") {
-                return styledPrefix("OK ", color: .green, compact: compact) + message
+                return styledPrefix("OK ", color: .green) + message
             }
-            return styledPrefix("TRK", color: .cyan, compact: compact) + message
+            return styledPrefix("TRK", color: .cyan) + message
         }
 
         if message.hasPrefix("nothing matches") {
-            return styledPrefix("IDLE", color: .dim, compact: compact) + style(message, color: .dim)
+            return styledPrefix("IDLE", color: .dim) + style(message, color: .dim)
         }
 
-        return styledPrefix("INFO", color: .blue, compact: compact) + message
+        return styledPrefix("INFO", color: .blue) + message
     }
 
-    private func formatWarning(message: String, compact: Bool) -> String {
+    private func formatWarning(message: String) -> String {
         if message.hasPrefix("killed ") {
-            return styledPrefix("KILL", color: .red, compact: compact) + message
+            return styledPrefix("KILL", color: .red) + message
         }
         if message.hasPrefix("warning ") {
-            return styledPrefix("WARN", color: .yellow, compact: compact) + message
+            return styledPrefix("WARN", color: .yellow) + message
         }
         if message.hasPrefix("notified:") {
-            return styledPrefix("NOTE", color: .magenta, compact: compact) + message
+            return styledPrefix("NOTE", color: .magenta) + message
         }
-        return styledPrefix("WARN", color: .red, compact: compact) + message
+        return styledPrefix("WARN", color: .red) + message
     }
 
-    private func styledPrefix(_ text: String, color: ANSIColor, compact: Bool) -> String {
-        let bracketed = compact ? "[\(text)] " : "[\(text)] "
-        return style(bracketed, color: color, bold: true)
+    private func styledPrefix(_ text: String, color: ANSIColor) -> String {
+        style("[\(text)] ", color: color, bold: true)
     }
 
     private func parseTick(_ message: String) -> UInt64? {
@@ -541,26 +537,28 @@ private final class CLILogRenderer {
     }
 
     private func processSpecificity(_ processName: String) -> Int {
-        let trimmed = processName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty || trimmed == "*" {
+        guard let trimmed = normalizedProcessFilter(processName) else {
+            return 0
+        }
+        if trimmed == "*" {
             return 0
         }
         return trimmed.count
     }
 
     private func formatTrack(_ track: TrackLine, hot: Bool) -> String {
-        let prefix = hot ? styledPrefix("HOT", color: .yellow, compact: false) : styledPrefix("OK ", color: .green, compact: false)
-        let valueText = String(format: "%.2f", track.value)
-        let thresholdText = String(format: "%.2f", track.threshold)
-        let ratioText = String(format: "%3.0f%%", track.threshold > 0 ? (track.value / track.threshold) * 100.0 : 0.0)
+        let prefix = hot ? styledPrefix("HOT", color: .yellow) : styledPrefix("OK ", color: .green)
+        let valueText = fixed2(track.value)
+        let thresholdText = fixed2(track.threshold)
+        let ratioText = String(format: "%3.0f%%", track.ratio * 100.0)
         if let forSeconds = track.forSeconds {
             return "\(prefix)\(track.processName) pid=\(track.pid) \(track.metric) \(valueText)/\(thresholdText) \(ratioText) for=\(forSeconds)"
         }
         return "\(prefix)\(track.processName) pid=\(track.pid) \(track.metric) \(valueText)/\(thresholdText) \(ratioText)"
     }
 
-    private func formatProcessHealth(_ process: ProcessHealth, hot: Bool) -> String {
-        var line = formatTrack(process.track, hot: hot)
+    private func formatProcessHealth(_ process: ProcessHealth) -> String {
+        var line = formatTrack(process.track, hot: false)
         if process.matchedRules > 1 {
             line += style("  rules=\(process.matchedRules)", color: .dim)
         }
@@ -572,17 +570,22 @@ private final class CLILogRenderer {
             return text
         }
 
-        var codes: [String] = []
-        if bold {
-            codes.append("1")
-        }
-        if let color {
-            codes.append(color.rawValue)
-        }
-        if codes.isEmpty {
+        if !bold, color == nil {
             return text
         }
-        return "\u{001B}[\(codes.joined(separator: ";"))m\(text)\u{001B}[0m"
+        let prefix: String
+        switch (bold, color) {
+        case (true, let maybeColor?):
+            prefix = "\u{001B}[1;\(maybeColor.rawValue)m"
+        case (true, nil):
+            prefix = "\u{001B}[1m"
+        case (false, let maybeColor?):
+            prefix = "\u{001B}[\(maybeColor.rawValue)m"
+        case (false, nil):
+            return text
+        }
+
+        return "\(prefix)\(text)\u{001B}[0m"
     }
 
     private func write(_ text: String) {

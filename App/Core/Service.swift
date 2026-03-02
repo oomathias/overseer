@@ -4,16 +4,23 @@ import Darwin
 final class ServiceManager {
     private let commandRunner: CommandRunner
     private let verbose: Bool
+    private let launchdUID: uid_t
+    private let homeDirectory: String
 
     init(commandRunner: CommandRunner, verbose: Bool) {
         self.commandRunner = commandRunner
         self.verbose = verbose
+        launchdUID = getuid()
+        homeDirectory = FileManager.default.homeDirectoryForCurrentUser.path
+    }
+
+    private func launchdPath(_ relativePath: String) -> String {
+        (homeDirectory as NSString).appendingPathComponent(relativePath)
     }
 
     func install(configPath: String) throws {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let launchAgentsDir = (home as NSString).appendingPathComponent("Library/LaunchAgents")
-        let logsDir = (home as NSString).appendingPathComponent("Library/Logs")
+        let launchAgentsDir = launchdPath("Library/LaunchAgents")
+        let logsDir = launchdPath("Library/Logs")
         try FileManager.default.createDirectory(atPath: launchAgentsDir, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(atPath: logsDir, withIntermediateDirectories: true)
 
@@ -34,30 +41,24 @@ final class ServiceManager {
             stderrLog: stderrLog
         )
 
-        let domain = launchdDomain()
-        let target = launchdTarget()
-
-        tryBootout(target: target)
-        try runLaunchctlChecked(["bootstrap", domain, plistPath])
+        tryBootout(target: launchdTarget())
+        try bootstrapService()
     }
 
     func uninstall() throws {
-        let target = launchdTarget()
         let plistPath = launchdPlistPath()
 
-        tryBootout(target: target)
+        tryBootout(target: launchdTarget())
         if FileManager.default.fileExists(atPath: plistPath) {
             try FileManager.default.removeItem(atPath: plistPath)
         }
     }
 
     func start() throws {
-        let domain = launchdDomain()
-        let target = launchdTarget()
-        let firstTry = try runLaunchctl(["kickstart", target])
+        let firstTry = try runLaunchctl(["kickstart", launchdTarget()])
 
         if firstTry.timedOut || firstTry.exitCode != 0 {
-            try runLaunchctlChecked(["bootstrap", domain, launchdPlistPath()])
+            try bootstrapService()
         }
     }
 
@@ -66,12 +67,8 @@ final class ServiceManager {
     }
 
     func restart() throws {
-        let domain = launchdDomain()
-        let target = launchdTarget()
-        let plistPath = launchdPlistPath()
-
-        tryBootout(target: target)
-        try runLaunchctlChecked(["bootstrap", domain, plistPath])
+        tryBootout(target: launchdTarget())
+        try bootstrapService()
     }
 
     func status() throws -> String {
@@ -85,6 +82,10 @@ final class ServiceManager {
         return "service \(serviceLabel) is not running"
     }
 
+    private func bootstrapService() throws {
+        try runLaunchctlChecked(["bootstrap", launchdDomain(), launchdPlistPath()])
+    }
+
     private func runLaunchctl(_ arguments: [String]) throws -> CommandOutput {
         try commandRunner.run(
             program: "/bin/launchctl",
@@ -96,12 +97,13 @@ final class ServiceManager {
 
     private func runLaunchctlChecked(_ arguments: [String]) throws {
         let output = try runLaunchctl(arguments)
+        let subcommand = arguments.first ?? ""
         if output.timedOut {
-            throw OverseerError.commandTimedOut("launchctl \(arguments.first ?? "") timed out")
+            throw OverseerError.commandTimedOut("launchctl \(subcommand) timed out")
         }
         if output.exitCode != 0 {
             let errorText = output.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-            throw OverseerError.commandFailed("launchctl \(arguments.first ?? "") failed: \(errorText)")
+            throw OverseerError.commandFailed("launchctl \(subcommand) failed: \(errorText)")
         }
         if verbose {
             let trimmed = output.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -116,16 +118,15 @@ final class ServiceManager {
     }
 
     private func launchdDomain() -> String {
-        "gui/\(getuid())"
+        "gui/\(launchdUID)"
     }
 
     private func launchdTarget() -> String {
-        "gui/\(getuid())/\(serviceLabel)"
+        "\(launchdDomain())/\(serviceLabel)"
     }
 
     private func launchdPlistPath() -> String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return (home as NSString).appendingPathComponent("Library/LaunchAgents/\(serviceLabel).plist")
+        (launchdPath("Library/LaunchAgents") as NSString).appendingPathComponent("\(serviceLabel).plist")
     }
 
     private func resolveServiceExecutablePath() throws -> String {

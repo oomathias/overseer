@@ -37,12 +37,9 @@ final class MonitorRuntime {
         self.signalSender = signalSender
         self.pidResolver = pidResolver
         self.logHandler = logHandler
-        needsCommandPath = config.rules.contains { isConfiguredProcessRule($0.process) }
+        needsCommandPath = config.rules.contains { normalizedProcessFilter($0.process) != nil }
         hasPIDGlobRules = config.rules.contains {
-            guard let pattern = $0.pidFileGlob?.trimmingCharacters(in: .whitespacesAndNewlines) else {
-                return false
-            }
-            return !pattern.isEmpty
+            normalizedProcessFilter($0.pidFileGlob) != nil
         }
     }
 
@@ -75,15 +72,12 @@ final class MonitorRuntime {
         )
 
         for track in output.tracks {
+            var message = "track \(track.ruleProcess) pid=\(track.pid) metric=\(track.metric.rawValue) value=\(fixed2(track.value)) threshold=\(fixed2(track.threshold))"
             if let forSeconds = track.forSeconds {
-                logInfo(
-                    "track \(track.ruleProcess) pid=\(track.pid) metric=\(track.metric.rawValue) value=\(fixed2(track.value)) threshold=\(fixed2(track.threshold)) for=\(forSeconds)s status=\(track.status.rawValue)"
-                )
-            } else {
-                logInfo(
-                    "track \(track.ruleProcess) pid=\(track.pid) metric=\(track.metric.rawValue) value=\(fixed2(track.value)) threshold=\(fixed2(track.threshold)) status=\(track.status.rawValue)"
-                )
+                message += " for=\(forSeconds)s"
             }
+            message += " status=\(track.status.rawValue)"
+            logInfo(message)
         }
 
         for effect in output.effects {
@@ -99,69 +93,50 @@ final class MonitorRuntime {
         switch effect {
         case let .warning(message):
             logWarn("warning \(message)")
-            do {
-                try notifier.notify(kind: .warning, message: message)
-            } catch {
-                logWarn("notification failed: \(error)")
-            }
+            notifyIfNeeded(kind: .warning, message: message)
         case let .notify(message):
-            do {
-                try notifier.notify(kind: .monitor, message: message)
-            } catch {
-                logWarn("notification failed: \(error)")
-            }
+            notifyIfNeeded(kind: .monitor, message: message)
             logWarn("notified: \(message)")
         case let .kill(pid, signal, processName, message, notifyUser):
             try signalSender.send(pid: pid, signal: signal)
             logWarn("killed \(processName) (pid \(pid)) because \(message)")
             if notifyUser {
-                do {
-                    try notifier.notify(kind: .kill, message: message)
-                } catch {
-                    logWarn("notification failed: \(error)")
-                }
+                notifyIfNeeded(kind: .kill, message: message)
             }
         }
     }
 
-    private func logInfo(_ message: String) {
-        guard verbose else {
+    private func notifyIfNeeded(kind: NotificationKind, message: String) {
+        do {
+            try notifier.notify(kind: kind, message: message)
+        } catch {
+            logWarn("notification failed: \(error)")
+        }
+    }
+
+    private func log(level: MonitorLogLevel, message: String, requiresVerbose: Bool = false, raw: Bool = false) {
+        if requiresVerbose && !verbose {
             return
         }
         if let logHandler {
-            logHandler(.info, message)
-        } else {
-            fputs("info: \(message)\n", stderr)
+            logHandler(level, message)
+            return
         }
+
+        let output = raw ? message : "\(level == .info ? "info: " : "warn: ")\(message)"
+        fputs("\(output)\n", stderr)
     }
 
     private func logTickSeparator(tick: UInt64) {
-        guard verbose else {
-            return
-        }
-        if let logHandler {
-            logHandler(.info, "----- tick \(tick) -----")
-        } else {
-            fputs("----- tick \(tick) -----\n", stderr)
-        }
+        log(level: .info, message: "----- tick \(tick) -----", requiresVerbose: true, raw: true)
     }
 
     private func logWarn(_ message: String) {
-        if let logHandler {
-            logHandler(.warning, message)
-        } else {
-            fputs("warn: \(message)\n", stderr)
-        }
+        log(level: .warning, message: message)
     }
-}
-
-private func fixed2(_ value: Double) -> String {
-    String(format: "%.2f", value)
-}
-
-private func isConfiguredProcessRule(_ process: String?) -> Bool {
-    guard let process else {
-        return false
+ 
+    private func logInfo(_ message: String) {
+        log(level: .info, message: message, requiresVerbose: true)
     }
-    return !process.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
 }

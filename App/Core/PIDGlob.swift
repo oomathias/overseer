@@ -5,9 +5,7 @@ final class PIDGlobResolver {
         var filters: [Int: Set<Int32>] = [:]
 
         for (index, rule) in rules.enumerated() {
-            guard let pattern = rule.pidFileGlob?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !pattern.isEmpty
-            else {
+            guard let pattern = normalizedProcessFilter(rule.pidFileGlob) else {
                 continue
             }
 

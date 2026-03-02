@@ -140,21 +140,14 @@ final class DecisionEngine {
 }
 
 private func processMatches(ruleProcess: String?, process: ProcessInfo) -> Bool {
-    if isAllProcessRule(ruleProcess) {
+    guard let ruleName = normalizedProcessFilter(ruleProcess) else {
         return true
     }
 
-    let ruleName = ruleProcess?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    if ruleName.caseInsensitiveCompare(process.name) == .orderedSame {
-        return true
-    }
-    if startsWithIgnoreCase(process.name, prefix: ruleName) {
-        return true
-    }
-    if startsWithIgnoreCase(ruleName, prefix: process.name) {
-        return true
-    }
-    return containsIgnoreCase(process.command, needle: ruleName)
+    return ruleName.caseInsensitiveCompare(process.name) == .orderedSame
+        || startsWithIgnoreCase(process.name, prefix: ruleName)
+        || startsWithIgnoreCase(ruleName, prefix: process.name)
+        || containsIgnoreCase(process.command, needle: ruleName)
 }
 
 private func isTreeRootForRule(ruleProcess: String?, process: ProcessInfo, processByPID: [Int32: ProcessInfo]) -> Bool {
@@ -186,14 +179,11 @@ private func isTreeRootForRule(ruleProcess: String?, process: ProcessInfo, proce
 }
 
 private func isAllProcessRule(_ ruleProcess: String?) -> Bool {
-    guard let value = ruleProcess else {
-        return true
-    }
-    return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    normalizedProcessFilter(ruleProcess) == nil
 }
 
 private func ruleProcessLabel(_ ruleProcess: String?) -> String {
-    isAllProcessRule(ruleProcess) ? "*" : (ruleProcess?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "*")
+    normalizedProcessFilter(ruleProcess) ?? "*"
 }
 
 private func startsWithIgnoreCase(_ value: String, prefix: String) -> Bool {
@@ -204,9 +194,6 @@ private func startsWithIgnoreCase(_ value: String, prefix: String) -> Bool {
 }
 
 private func containsIgnoreCase(_ haystack: String, needle: String) -> Bool {
-    if needle.isEmpty {
-        return true
-    }
     return haystack.range(of: needle, options: [.caseInsensitive]) != nil
 }
 
@@ -247,10 +234,6 @@ private func actionMessage(processLabel: String, rule: Rule, process: ProcessInf
         return "\(processLabel) pid=\(process.pid) metric=\(rule.metric.rawValue) value=\(fixed2(current)) threshold=\(fixed2(rule.threshold)) persisted=\(forSeconds)s"
     }
     return "\(processLabel) pid=\(process.pid) metric=\(rule.metric.rawValue) value=\(fixed2(current)) threshold=\(fixed2(rule.threshold))"
-}
-
-private func fixed2(_ value: Double) -> String {
-    String(format: "%.2f", value)
 }
 
 private func saturatingSubtract(_ lhs: UInt64, _ rhs: UInt64) -> UInt64 {
