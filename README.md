@@ -6,7 +6,7 @@
 
 <p align="center"><em>Overseer is a macOS process monitor you run as a daemon or TUI.</em></p>
 
-## Why use it?
+## But why?
 
 Apps and AI agents can leak memory, especially in long-running browser-based sessions.
 
@@ -56,7 +56,7 @@ Example covering all supported metrics and actions:
 {
   "poll_interval_seconds": 5,
   "only_tree_roots": true,
-  "warning_threshold": 0,
+  "warning_threshold": 90,
   "notify_on_kill": true,
   "rules": [
     {
@@ -79,10 +79,40 @@ Example covering all supported metrics and actions:
       "metric": "runtime_seconds",
       "threshold": 7200,
       "action": "notify"
+    },
+    {
+      "process": "",
+      "pid_file_glob": "~/BrowserService/*.pid",
+      "metric": "memory_mb",
+      "threshold": 512,
+      "for_seconds": 20,
+      "action": "notify"
     }
   ]
 }
 ```
+
+### Rule options
+
+Each item in `rules` supports these fields:
+
+- `process` (optional, default: `null`): process name pattern to match against the process command/name.
+- `pid_file_glob` (optional, default: not set): glob pattern for PID files. When set, the rule applies only to PIDs from matching files.
+- `metric` (required): one of `cpu_percent`, `memory_mb`, or `runtime_seconds`.
+- `threshold` (required): numeric threshold for the selected metric.
+- `for_seconds` (optional, default: `0`): action only fires after this duration stays above threshold.
+- `action` (required): `notify` or `kill`.
+- `signal` (optional, default: `term`): `term`, `kill`, or `int`. Used only with `kill`.
+- `cooldown_seconds` (optional, default: `60` for `notify`, `0` for `kill`): minimum seconds between repeated actions.
+
+## Global options
+
+Global options live at the top level of the config and apply to all rules:
+
+- `poll_interval_seconds` (default: `5`): poll interval in seconds.
+- `only_tree_roots` (default: `true`): if `true`, evaluate only tree-root processes for each rule.
+- `warning_threshold` (default: `0`): warn at this percentage of threshold (e.g. `90` for 90%).
+- `notify_on_kill` (default: `true`): if `true`, show a notification for kill actions.
 
 ## Usage
 
