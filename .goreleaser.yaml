@@ -19,25 +19,25 @@ before:
 
 builds:
   - id: overseer
-    skip: true
+    main: .
+    dir: ./.release
+    binary: overseer
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    hooks:
+      post:
+        - cp .goreleaser-artifacts/binaries/darwin_{{ .Arch }}/overseer {{ .Path }}
 
 archives:
-  - id: overseer-darwin-arm64
-    meta: true
-    name_template: "{{ .ProjectName }}_{{ .Version }}_darwin_arm64"
+  - id: overseer
+    ids:
+      - overseer
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     formats:
       - tar.gz
-    files:
-      - src: .goreleaser-artifacts/binaries/darwin_arm64/overseer
-        dst: overseer
-  - id: overseer-darwin-amd64
-    meta: true
-    name_template: "{{ .ProjectName }}_{{ .Version }}_darwin_amd64"
-    formats:
-      - tar.gz
-    files:
-      - src: .goreleaser-artifacts/binaries/darwin_amd64/overseer
-        dst: overseer
 
 checksum:
   name_template: checksums.txt
