@@ -48,6 +48,8 @@ struct OverseerCLI {
     case "validate":
       let options = try parseOptions(remaining)
       try runValidate(options: options)
+    case "update":
+      try runUpdate(arguments: remaining)
     case "service":
       try runService(arguments: remaining)
     default:
@@ -139,6 +141,51 @@ struct OverseerCLI {
     }
   }
 
+  private static func runUpdate(arguments: [String]) throws {
+    if let first = arguments.first, first == "-h" || first == "--help" {
+      printUsage()
+      return
+    }
+    if !arguments.isEmpty {
+      throw OverseerError.invalidArguments("update does not accept arguments")
+    }
+
+    let manager = SelfUpdateManager()
+    let installDir = try manager.currentInstallDirectory()
+    print("updating \(appName) in \(installDir)")
+    _ = try manager.updateToLatest(
+      stdoutHandler: { chunk in
+        writeAll(chunk, to: STDOUT_FILENO)
+      },
+      stderrHandler: { chunk in
+        writeAll(chunk, to: STDERR_FILENO)
+      }
+    )
+
+    print("if \(appName) runs as a launchd service, restart it with '\(appName) service restart'.")
+  }
+
+  private static func writeAll(_ data: Data, to fileDescriptor: Int32) {
+    data.withUnsafeBytes { rawBuffer in
+      guard let baseAddress = rawBuffer.baseAddress else {
+        return
+      }
+
+      var offset = 0
+      while offset < rawBuffer.count {
+        let written = Darwin.write(fileDescriptor, baseAddress.advanced(by: offset), rawBuffer.count - offset)
+        if written > 0 {
+          offset += written
+          continue
+        }
+        if errno == EINTR {
+          continue
+        }
+        break
+      }
+    }
+  }
+
   private static func parseOptions(_ arguments: [String]) throws -> CLIOptions {
     var configPath = defaultConfigPath
     var verbose = true
@@ -185,6 +232,7 @@ struct OverseerCLI {
       Usage:
         overseer monitor [--config PATH] [--verbose|--quiet] [--live|--no-live]
         overseer validate [--config PATH]
+        overseer update
         overseer service <install|uninstall|start|stop|restart|status> [--config PATH] [--verbose|--quiet] [--live|--no-live]
         overseer version
 

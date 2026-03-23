@@ -130,15 +130,7 @@ final class ServiceManager {
   }
 
   private func resolveServiceExecutablePath() throws -> String {
-    if let executablePath = Bundle.main.executablePath {
-      return try resolveAbsolutePath(executablePath)
-    }
-
-    if let firstArgument = CommandLine.arguments.first, !firstArgument.isEmpty {
-      return try resolveAbsolutePath(firstArgument)
-    }
-
-    throw OverseerError.system("failed to resolve executable path for launchd service")
+    try resolveCurrentExecutablePath()
   }
 
   private func writeLaunchAgentPlist(

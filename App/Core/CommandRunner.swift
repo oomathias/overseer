@@ -13,7 +13,10 @@ final class CommandRunner {
     program: String,
     arguments: [String],
     timeout: TimeInterval,
-    maxOutputBytes: Int = 1024 * 1024
+    maxOutputBytes: Int = 1024 * 1024,
+    environment: [String: String]? = nil,
+    stdoutHandler: ((Data) -> Void)? = nil,
+    stderrHandler: ((Data) -> Void)? = nil
   ) throws -> CommandOutput {
     let process = Process()
     if program.hasPrefix("/") {
@@ -28,6 +31,7 @@ final class CommandRunner {
     let stderrPipe = Pipe()
     let stdoutHandle = stdoutPipe.fileHandleForReading
     let stderrHandle = stderrPipe.fileHandleForReading
+    process.environment = environment
     process.standardInput = nil
     process.standardOutput = stdoutPipe
     process.standardError = stderrPipe
@@ -35,8 +39,18 @@ final class CommandRunner {
     let stdoutBox = DataBox()
     let stderrBox = DataBox()
 
-    configureOutputReader(handle: stdoutHandle, output: stdoutBox, maxBytes: maxOutputBytes)
-    configureOutputReader(handle: stderrHandle, output: stderrBox, maxBytes: maxOutputBytes)
+    configureOutputReader(
+      handle: stdoutHandle,
+      output: stdoutBox,
+      maxBytes: maxOutputBytes,
+      outputHandler: stdoutHandler
+    )
+    configureOutputReader(
+      handle: stderrHandle,
+      output: stderrBox,
+      maxBytes: maxOutputBytes,
+      outputHandler: stderrHandler
+    )
 
     do {
       try process.run()
@@ -77,13 +91,19 @@ final class CommandRunner {
     return CommandOutput(stdout: stdout, stderr: stderr, exitCode: exitCode, timedOut: timedOut)
   }
 
-  private func configureOutputReader(handle: FileHandle, output: DataBox, maxBytes: Int) {
+  private func configureOutputReader(
+    handle: FileHandle,
+    output: DataBox,
+    maxBytes: Int,
+    outputHandler: ((Data) -> Void)?
+  ) {
     handle.readabilityHandler = { source in
       let chunk = source.availableData
       if chunk.isEmpty {
         source.readabilityHandler = nil
         return
       }
+      outputHandler?(chunk)
       output.append(chunk, maxBytes: maxBytes)
     }
   }

@@ -123,6 +123,12 @@ Run monitor in the foreground:
 overseer monitor --config ~/.config/overseer/config.json
 ```
 
+Update the current binary in place:
+
+```bash
+overseer update
+```
+
 Manage the launchd service:
 
 ```bash
