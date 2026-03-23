@@ -64,6 +64,20 @@ struct Config: Decodable {
     case rules
   }
 
+  init(
+    pollIntervalSeconds: UInt64,
+    onlyTreeRoots: Bool,
+    notifyOnKill: Bool,
+    warningThreshold: UInt8,
+    rules: [Rule]
+  ) {
+    self.pollIntervalSeconds = pollIntervalSeconds
+    self.onlyTreeRoots = onlyTreeRoots
+    self.notifyOnKill = notifyOnKill
+    self.warningThreshold = warningThreshold
+    self.rules = rules
+  }
+
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     pollIntervalSeconds = try container.decodeIfPresent(UInt64.self, forKey: .pollIntervalSeconds) ?? 5
@@ -108,7 +122,7 @@ enum TrackStatus: String {
   case violating
 }
 
-struct TrackEvent {
+struct TrackEvent: Equatable {
   let ruleProcess: String
   let pid: Int32
   let metric: Metric
@@ -118,13 +132,13 @@ struct TrackEvent {
   let status: TrackStatus
 }
 
-enum EffectEvent {
+enum EffectEvent: Equatable {
   case warning(message: String)
   case notify(message: String)
   case kill(pid: Int32, signal: KillSignal, processName: String, message: String, notifyUser: Bool)
 }
 
-struct DecisionOutput {
+struct DecisionOutput: Equatable {
   let tracks: [TrackEvent]
   let effects: [EffectEvent]
   let matchedAny: Bool
