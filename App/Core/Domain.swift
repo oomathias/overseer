@@ -84,6 +84,11 @@ struct Config: Decodable {
             if rule.threshold < 0 {
                 throw OverseerError.invalidConfig("rule \(index) has negative threshold")
             }
+            if let pidFileGlob = normalizedProcessFilter(rule.pidFileGlob),
+               hasUnresolvedUserPath(pidFileGlob)
+            {
+                throw OverseerError.invalidConfig("rule \(index) has unexpandable pid_file_glob \(pidFileGlob)")
+            }
         }
     }
 }

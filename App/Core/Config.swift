@@ -1,7 +1,17 @@
 import Foundation
 
 func loadConfig(from path: String) throws -> Config {
-    let absolutePath = resolveAbsolutePath(path)
+    let absolutePath: String
+    do {
+        absolutePath = try resolveAbsolutePath(path)
+    } catch let error as OverseerError {
+        switch error {
+        case let .invalidArguments(message):
+            throw OverseerError.io(message)
+        default:
+            throw error
+        }
+    }
     let fileURL = URL(fileURLWithPath: absolutePath)
     let data: Data
     do {
@@ -22,12 +32,24 @@ func loadConfig(from path: String) throws -> Config {
     return config
 }
 
-func resolveAbsolutePath(_ path: String, currentDirectory: String = FileManager.default.currentDirectoryPath) -> String {
+func resolveAbsolutePath(_ path: String, currentDirectory: String = FileManager.default.currentDirectoryPath) throws -> String {
+    if hasUnresolvedUserPath(path) {
+        throw OverseerError.invalidArguments("failed to expand path \(path)")
+    }
+
     let expandedPath = (path as NSString).expandingTildeInPath
     if expandedPath.hasPrefix("/") {
         return URL(fileURLWithPath: expandedPath).standardized.path
     }
     return URL(fileURLWithPath: currentDirectory).appendingPathComponent(expandedPath).standardized.path
+}
+
+func hasUnresolvedUserPath(_ path: String) -> Bool {
+    let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard trimmed.hasPrefix("~") else {
+        return false
+    }
+    return (trimmed as NSString).expandingTildeInPath == trimmed
 }
 
 func nowEpochSeconds() -> UInt64 {

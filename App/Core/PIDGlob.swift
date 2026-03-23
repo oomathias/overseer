@@ -9,6 +9,8 @@ final class PIDGlobResolver {
                 continue
             }
 
+            filters[index] = []
+
             let expanded = (pattern as NSString).expandingTildeInPath
             let directory = (expanded as NSString).deletingLastPathComponent
             let filePattern = (expanded as NSString).lastPathComponent

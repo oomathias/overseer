@@ -18,5 +18,10 @@ let package = Package(
                 "Core",
             ]
         ),
+        .testTarget(
+            name: "OverseerTests",
+            dependencies: ["overseer"],
+            path: "Tests"
+        ),
     ]
 )

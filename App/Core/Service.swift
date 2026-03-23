@@ -29,7 +29,7 @@ final class ServiceManager {
         let stderrLog = (logsDir as NSString).appendingPathComponent("overseer.err.log")
 
         let executablePath = try resolveServiceExecutablePath()
-        let configAbsolutePath = resolveAbsolutePath(configPath)
+        let configAbsolutePath = try resolveAbsolutePath(configPath)
         let cwd = FileManager.default.currentDirectoryPath
 
         try writeLaunchAgentPlist(
@@ -131,11 +131,11 @@ final class ServiceManager {
 
     private func resolveServiceExecutablePath() throws -> String {
         if let executablePath = Bundle.main.executablePath {
-            return resolveAbsolutePath(executablePath)
+            return try resolveAbsolutePath(executablePath)
         }
 
         if let firstArgument = CommandLine.arguments.first, !firstArgument.isEmpty {
-            return resolveAbsolutePath(firstArgument)
+            return try resolveAbsolutePath(firstArgument)
         }
 
         throw OverseerError.system("failed to resolve executable path for launchd service")
