@@ -2,6 +2,7 @@
 go = "1.26"
 goreleaser = "2.14.1"
 cosign = "latest"
+svu = "3.3.0"
 
 [settings]
 not_found_auto_install = true
@@ -9,7 +10,17 @@ exec_auto_install = true
 
 [tasks.doctor]
 description = "Check required local tooling"
-run = "command -v swift >/dev/null && xcode-select -p >/dev/null"
+run = "command -v swift >/dev/null && xcode-select -p >/dev/null && swift format --help >/dev/null"
+
+[tasks.fmt]
+description = "Format Swift sources"
+depends = ["doctor"]
+run = "swift format format --in-place --parallel --recursive --configuration .swift-format App Tests Package.swift"
+
+[tasks.fmt-check]
+description = "Check Swift formatting"
+depends = ["doctor"]
+run = "swift format lint --strict --parallel --recursive --configuration .swift-format App Tests Package.swift"
 
 [tasks.build]
 description = "Build debug binary"
@@ -20,6 +31,11 @@ run = "swift build"
 description = "Build release binary"
 depends = ["doctor"]
 run = "swift build -c release"
+
+[tasks.test]
+description = "Run all tests"
+depends = ["doctor"]
+run = "swift test"
 
 [tasks.overseer]
 description = "Run overseer with passthrough args"
@@ -40,6 +56,58 @@ run = "goreleaser check --config .goreleaser.yaml"
 description = "Run local snapshot release build"
 depends = ["doctor", "release-check"]
 run = "goreleaser release --snapshot --clean --skip=publish,sign"
+
+[tasks.ci]
+description = "Run CI quality gates"
+depends = ["fmt-check", "test", "release-check"]
+run = "printf 'All CI checks passed.\n'"
+
+[tasks.release]
+description = "Create and push the next release tag (CI publishes artifacts)"
+depends = ["ci"]
+run = """
+set -eu
+
+git diff --quiet && git diff --cached --quiet || {
+  printf 'Working tree is dirty. Commit or stash changes before releasing.\n'
+  exit 1
+}
+
+git fetch --tags origin main
+
+branch="$(git branch --show-current)"
+if [ "$branch" != "main" ]; then
+  printf 'Release must run from main. Current branch: %s\n' "$branch"
+  exit 1
+fi
+
+head_commit="$(git rev-parse HEAD)"
+remote_main_commit="$(git rev-parse origin/main)"
+if [ "$head_commit" != "$remote_main_commit" ]; then
+  printf 'Release must tag the latest origin/main commit.\n'
+  printf 'HEAD:        %s\n' "$head_commit"
+  printf 'origin/main: %s\n' "$remote_main_commit"
+  exit 1
+fi
+
+current="$(svu current --tag.prefix v --tag.mode all)"
+next="$(svu next --tag.prefix v --tag.mode all)"
+
+if [ "$next" = "$current" ]; then
+  printf 'No releasable commits found since %s (need feat/fix/breaking).\n' "$current"
+  exit 1
+fi
+
+if git rev-parse --verify "$next" >/dev/null 2>&1; then
+  printf 'Tag already exists locally: %s\n' "$next"
+  exit 1
+fi
+
+git tag -a "$next" -m "release: $next"
+git push origin "$next"
+
+printf 'Pushed %s. GitHub Actions release workflow should start now.\n' "$next"
+"""
 
 [tasks.clean]
 description = "Clean Swift build artifacts"

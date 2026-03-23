@@ -1,117 +1,117 @@
-import Foundation
 import Darwin
+import Foundation
 
 struct CommandOutput {
-    let stdout: String
-    let stderr: String
-    let exitCode: Int32
-    let timedOut: Bool
+  let stdout: String
+  let stderr: String
+  let exitCode: Int32
+  let timedOut: Bool
 }
 
 final class CommandRunner {
-    func run(
-        program: String,
-        arguments: [String],
-        timeout: TimeInterval,
-        maxOutputBytes: Int = 1024 * 1024
-    ) throws -> CommandOutput {
-        let process = Process()
-        if program.hasPrefix("/") {
-            process.executableURL = URL(fileURLWithPath: program)
-            process.arguments = arguments
-        } else {
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = [program] + arguments
-        }
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        let stdoutHandle = stdoutPipe.fileHandleForReading
-        let stderrHandle = stderrPipe.fileHandleForReading
-        process.standardInput = nil
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        let stdoutBox = DataBox()
-        let stderrBox = DataBox()
-
-        configureOutputReader(handle: stdoutHandle, output: stdoutBox, maxBytes: maxOutputBytes)
-        configureOutputReader(handle: stderrHandle, output: stderrBox, maxBytes: maxOutputBytes)
-
-        do {
-            try process.run()
-        } catch {
-            stdoutHandle.readabilityHandler = nil
-            stderrHandle.readabilityHandler = nil
-            throw OverseerError.commandFailed("failed to launch \(program): \(error.localizedDescription)")
-        }
-
-        let waitSemaphore = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            waitSemaphore.signal()
-        }
-
-        let timedOut = waitSemaphore.wait(timeout: .now() + timeout) == .timedOut
-        if timedOut {
-            process.terminate()
-            _ = waitSemaphore.wait(timeout: .now() + 1)
-            if process.isRunning {
-                Darwin.kill(process.processIdentifier, SIGKILL)
-                _ = waitSemaphore.wait(timeout: .now() + 1)
-            }
-        }
-
-        stdoutHandle.readabilityHandler = nil
-        stderrHandle.readabilityHandler = nil
-        stdoutHandle.closeFile()
-        stderrHandle.closeFile()
-
-        let stdoutData = stdoutBox.get()
-        let stderrData = stderrBox.get()
-
-        let stdout = String(decoding: stdoutData, as: UTF8.self)
-        let stderr = String(decoding: stderrData, as: UTF8.self)
-        let exitCode: Int32 = timedOut ? -1 : process.terminationStatus
-
-        return CommandOutput(stdout: stdout, stderr: stderr, exitCode: exitCode, timedOut: timedOut)
+  func run(
+    program: String,
+    arguments: [String],
+    timeout: TimeInterval,
+    maxOutputBytes: Int = 1024 * 1024
+  ) throws -> CommandOutput {
+    let process = Process()
+    if program.hasPrefix("/") {
+      process.executableURL = URL(fileURLWithPath: program)
+      process.arguments = arguments
+    } else {
+      process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+      process.arguments = [program] + arguments
     }
 
-    private func configureOutputReader(handle: FileHandle, output: DataBox, maxBytes: Int) {
-        handle.readabilityHandler = { source in
-            let chunk = source.availableData
-            if chunk.isEmpty {
-                source.readabilityHandler = nil
-                return
-            }
-            output.append(chunk, maxBytes: maxBytes)
-        }
+    let stdoutPipe = Pipe()
+    let stderrPipe = Pipe()
+    let stdoutHandle = stdoutPipe.fileHandleForReading
+    let stderrHandle = stderrPipe.fileHandleForReading
+    process.standardInput = nil
+    process.standardOutput = stdoutPipe
+    process.standardError = stderrPipe
+
+    let stdoutBox = DataBox()
+    let stderrBox = DataBox()
+
+    configureOutputReader(handle: stdoutHandle, output: stdoutBox, maxBytes: maxOutputBytes)
+    configureOutputReader(handle: stderrHandle, output: stderrBox, maxBytes: maxOutputBytes)
+
+    do {
+      try process.run()
+    } catch {
+      stdoutHandle.readabilityHandler = nil
+      stderrHandle.readabilityHandler = nil
+      throw OverseerError.commandFailed("failed to launch \(program): \(error.localizedDescription)")
     }
+
+    let waitSemaphore = DispatchSemaphore(value: 0)
+    DispatchQueue.global(qos: .userInitiated).async {
+      process.waitUntilExit()
+      waitSemaphore.signal()
+    }
+
+    let timedOut = waitSemaphore.wait(timeout: .now() + timeout) == .timedOut
+    if timedOut {
+      process.terminate()
+      _ = waitSemaphore.wait(timeout: .now() + 1)
+      if process.isRunning {
+        Darwin.kill(process.processIdentifier, SIGKILL)
+        _ = waitSemaphore.wait(timeout: .now() + 1)
+      }
+    }
+
+    stdoutHandle.readabilityHandler = nil
+    stderrHandle.readabilityHandler = nil
+    stdoutHandle.closeFile()
+    stderrHandle.closeFile()
+
+    let stdoutData = stdoutBox.get()
+    let stderrData = stderrBox.get()
+
+    let stdout = String(decoding: stdoutData, as: UTF8.self)
+    let stderr = String(decoding: stderrData, as: UTF8.self)
+    let exitCode: Int32 = timedOut ? -1 : process.terminationStatus
+
+    return CommandOutput(stdout: stdout, stderr: stderr, exitCode: exitCode, timedOut: timedOut)
+  }
+
+  private func configureOutputReader(handle: FileHandle, output: DataBox, maxBytes: Int) {
+    handle.readabilityHandler = { source in
+      let chunk = source.availableData
+      if chunk.isEmpty {
+        source.readabilityHandler = nil
+        return
+      }
+      output.append(chunk, maxBytes: maxBytes)
+    }
+  }
 }
 
 private final class DataBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var data = Data()
+  private let lock = NSLock()
+  private var data = Data()
 
-    func append(_ value: Data, maxBytes: Int) {
-        lock.lock()
-        defer { lock.unlock() }
+  func append(_ value: Data, maxBytes: Int) {
+    lock.lock()
+    defer { lock.unlock() }
 
-        if data.count >= maxBytes || value.isEmpty {
-            return
-        }
-
-        let remaining = maxBytes - data.count
-        if value.count > remaining {
-            data.append(value.prefix(remaining))
-        } else {
-            data.append(value)
-        }
+    if data.count >= maxBytes || value.isEmpty {
+      return
     }
 
-    func get() -> Data {
-        lock.lock()
-        defer { lock.unlock() }
-        return data
+    let remaining = maxBytes - data.count
+    if value.count > remaining {
+      data.append(value.prefix(remaining))
+    } else {
+      data.append(value)
     }
+  }
+
+  func get() -> Data {
+    lock.lock()
+    defer { lock.unlock() }
+    return data
+  }
 }
