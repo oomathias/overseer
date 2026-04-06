@@ -1,6 +1,6 @@
 [tools]
 go = "1.26.1"
-goreleaser = "2.14.3"
+goreleaser = "2.15.2"
 cosign = "3.0.5"
 svu = "3.4.0"
 
