@@ -1,7 +1,7 @@
 [tools]
-go = "1.26.1"
-goreleaser = "2.15.2"
-cosign = "3.0.5"
+go = "1.26.2"
+goreleaser = "2.15.4"
+cosign = "3.0.6"
 svu = "3.4.0"
 
 [settings]
