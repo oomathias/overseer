@@ -2,16 +2,27 @@ import Darwin
 import Foundation
 
 final class ServiceManager {
-  private let commandRunner: CommandRunner
+  private let commandRunner: CommandRunning
   private let verbose: Bool
   private let launchdUID: uid_t
   private let homeDirectory: String
+  private let currentDirectory: () -> String
+  private let executablePathResolver: () throws -> String
 
-  init(commandRunner: CommandRunner, verbose: Bool) {
+  init(
+    commandRunner: CommandRunning,
+    verbose: Bool,
+    launchdUID: uid_t = getuid(),
+    homeDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path,
+    currentDirectory: @escaping () -> String = { FileManager.default.currentDirectoryPath },
+    executablePathResolver: @escaping () throws -> String = { try resolveCurrentExecutablePath() }
+  ) {
     self.commandRunner = commandRunner
     self.verbose = verbose
-    launchdUID = getuid()
-    homeDirectory = FileManager.default.homeDirectoryForCurrentUser.path
+    self.launchdUID = launchdUID
+    self.homeDirectory = homeDirectory
+    self.currentDirectory = currentDirectory
+    self.executablePathResolver = executablePathResolver
   }
 
   private func launchdPath(_ relativePath: String) -> String {
@@ -30,7 +41,7 @@ final class ServiceManager {
 
     let executablePath = try resolveServiceExecutablePath()
     let configAbsolutePath = try resolveAbsolutePath(configPath)
-    let cwd = FileManager.default.currentDirectoryPath
+    let cwd = currentDirectory()
 
     try writeLaunchAgentPlist(
       plistPath: plistPath,
@@ -83,7 +94,12 @@ final class ServiceManager {
   }
 
   private func bootstrapService() throws {
+    try enableService()
     try runLaunchctlChecked(["bootstrap", launchdDomain(), launchdPlistPath()])
+  }
+
+  private func enableService() throws {
+    try runLaunchctlChecked(["enable", launchdTarget()])
   }
 
   private func runLaunchctl(_ arguments: [String]) throws -> CommandOutput {
@@ -91,7 +107,10 @@ final class ServiceManager {
       program: "/bin/launchctl",
       arguments: arguments,
       timeout: 10,
-      maxOutputBytes: 1024 * 1024
+      maxOutputBytes: 1024 * 1024,
+      environment: nil,
+      stdoutHandler: nil,
+      stderrHandler: nil
     )
   }
 
@@ -130,7 +149,7 @@ final class ServiceManager {
   }
 
   private func resolveServiceExecutablePath() throws -> String {
-    try resolveCurrentExecutablePath()
+    try executablePathResolver()
   }
 
   private func writeLaunchAgentPlist(

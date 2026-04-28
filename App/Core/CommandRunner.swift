@@ -8,7 +8,19 @@ struct CommandOutput {
   let timedOut: Bool
 }
 
-final class CommandRunner {
+protocol CommandRunning {
+  func run(
+    program: String,
+    arguments: [String],
+    timeout: TimeInterval,
+    maxOutputBytes: Int,
+    environment: [String: String]?,
+    stdoutHandler: ((Data) -> Void)?,
+    stderrHandler: ((Data) -> Void)?
+  ) throws -> CommandOutput
+}
+
+final class CommandRunner: CommandRunning {
   func run(
     program: String,
     arguments: [String],
