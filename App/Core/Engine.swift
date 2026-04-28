@@ -147,8 +147,6 @@ private func processMatches(ruleProcess: String?, process: ProcessInfo) -> Bool 
 
   return ruleName.caseInsensitiveCompare(process.name) == .orderedSame
     || startsWithIgnoreCase(process.name, prefix: ruleName)
-    || startsWithIgnoreCase(ruleName, prefix: process.name)
-    || containsIgnoreCase(process.command, needle: ruleName)
 }
 
 private func isTreeRootForRule(ruleProcess: String?, process: ProcessInfo, processByPID: [Int32: ProcessInfo]) -> Bool {
@@ -192,10 +190,6 @@ private func startsWithIgnoreCase(_ value: String, prefix: String) -> Bool {
     return false
   }
   return String(value.prefix(prefix.count)).caseInsensitiveCompare(prefix) == .orderedSame
-}
-
-private func containsIgnoreCase(_ haystack: String, needle: String) -> Bool {
-  return haystack.range(of: needle, options: [.caseInsensitive]) != nil
 }
 
 private func currentMetricValue(metric: Metric, process: ProcessInfo) -> Double {

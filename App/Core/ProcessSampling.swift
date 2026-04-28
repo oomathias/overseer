@@ -12,13 +12,13 @@ final class ProcessSampler {
     let startMicroseconds: Int64
   }
 
-  private struct CommandCacheRecord {
+  private struct ExecutablePathCacheRecord {
     let key: CommandCacheKey
-    let command: String
+    let path: String
   }
 
   private var previousCPU: [Int32: CPURecord] = [:]
-  private var commandCache: [Int32: CommandCacheRecord] = [:]
+  private var executablePathCache: [Int32: ExecutablePathCacheRecord] = [:]
 
   func snapshot(includeCommandPath: Bool) throws -> [ProcessInfo] {
     let pids = listPIDs()
@@ -30,9 +30,9 @@ final class ProcessSampler {
 
     var nextCPU: [Int32: CPURecord] = [:]
     nextCPU.reserveCapacity(pids.count)
-    var nextCommandCache: [Int32: CommandCacheRecord] = [:]
+    var nextExecutablePathCache: [Int32: ExecutablePathCacheRecord] = [:]
     if includeCommandPath {
-      nextCommandCache.reserveCapacity(pids.count)
+      nextExecutablePathCache.reserveCapacity(pids.count)
     }
 
     for pid in pids where pid > 0 {
@@ -43,14 +43,17 @@ final class ProcessSampler {
         continue
       }
 
-      let processName = processName(from: bsdInfo)
-      let commandLine = resolveCommandLine(
+      let bsdProcessName = processName(from: bsdInfo)
+      let executablePath = resolveExecutablePath(
         pid: pid,
         bsdInfo: bsdInfo,
-        fallbackName: processName,
         includeCommandPath: includeCommandPath,
-        nextCache: &nextCommandCache
+        nextCache: &nextExecutablePathCache
       )
+      let processName = includeCommandPath
+        ? executablePath.flatMap(executableName(from:)) ?? ""
+        : bsdProcessName
+      let commandLine = includeCommandPath ? executablePath ?? "" : bsdProcessName
       let totalCPU = taskInfo.pti_total_user &+ taskInfo.pti_total_system
       let cpuPercent: Double
 
@@ -82,7 +85,7 @@ final class ProcessSampler {
     }
 
     previousCPU = nextCPU
-    commandCache = includeCommandPath ? nextCommandCache : [:]
+    executablePathCache = includeCommandPath ? nextExecutablePathCache : [:]
 
     return processes
   }
@@ -135,15 +138,14 @@ final class ProcessSampler {
     }
   }
 
-  private func resolveCommandLine(
+  private func resolveExecutablePath(
     pid: Int32,
     bsdInfo: proc_bsdinfo,
-    fallbackName: String,
     includeCommandPath: Bool,
-    nextCache: inout [Int32: CommandCacheRecord]
-  ) -> String {
+    nextCache: inout [Int32: ExecutablePathCacheRecord]
+  ) -> String? {
     if !includeCommandPath {
-      return fallbackName
+      return nil
     }
 
     let cacheKey = CommandCacheKey(
@@ -151,20 +153,20 @@ final class ProcessSampler {
       startMicroseconds: Int64(clamping: bsdInfo.pbi_start_tvusec)
     )
 
-    if let cached = commandCache[pid], cached.key == cacheKey {
+    if let cached = executablePathCache[pid], cached.key == cacheKey {
       nextCache[pid] = cached
-      return cached.command
+      return cached.path.isEmpty ? nil : cached.path
     }
 
-    let command: String
-    if let path = processPath(pid: pid), !path.isEmpty {
-      command = path
-    } else {
-      command = fallbackName
-    }
+    let path = processPath(pid: pid) ?? ""
 
-    nextCache[pid] = CommandCacheRecord(key: cacheKey, command: command)
-    return command
+    nextCache[pid] = ExecutablePathCacheRecord(key: cacheKey, path: path)
+    return path.isEmpty ? nil : path
+  }
+
+  private func executableName(from path: String) -> String? {
+    let name = (path as NSString).lastPathComponent
+    return name.isEmpty ? nil : name
   }
 
   private func processPath(pid: Int32) -> String? {

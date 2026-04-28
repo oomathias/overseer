@@ -91,7 +91,7 @@ Example config covering all supported metrics and actions:
 
 Each item in `rules` supports these fields:
 
-- `process` (optional, default: `null`): process name pattern to match against the process command or name.
+- `process` (optional, default: `null`): binary name pattern to match against the executable basename.
 - `pid_file_glob` (optional, default: not set): glob pattern for PID files. When set, the rule applies only to PIDs from matching files.
 - `metric` (required): one of `cpu_percent`, `memory_mb`, or `runtime_seconds`.
 - `threshold` (required): numeric threshold for the selected metric.

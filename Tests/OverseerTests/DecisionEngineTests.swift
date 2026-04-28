@@ -183,10 +183,105 @@ final class DecisionEngineTests: XCTestCase {
     XCTAssertTrue(output.matchedAny)
   }
 
+  func testProcessRuleDoesNotMatchPathSubstringWhenBinaryNameDiffers() {
+    let engine = DecisionEngine()
+    let config = Config(
+      pollIntervalSeconds: 5,
+      onlyTreeRoots: false,
+      notifyOnKill: true,
+      warningThreshold: 0,
+      rules: [
+        Rule(
+          process: "opencode",
+          pidFileGlob: nil,
+          metric: .memoryMB,
+          threshold: 100,
+          forSeconds: nil,
+          action: .notify,
+          signal: nil,
+          cooldownSeconds: nil
+        )
+      ]
+    )
+
+    let output = engine.evaluate(
+      config: config,
+      now: 1,
+      processes: [
+        process(pid: 100, ppid: 1, name: "op", command: "/usr/local/bin/opencode", rssKB: 250 * 1024)
+      ],
+      pidFilters: [:]
+    )
+
+    XCTAssertTrue(output.tracks.isEmpty)
+    XCTAssertTrue(output.effects.isEmpty)
+    XCTAssertFalse(output.matchedAny)
+  }
+
+  func testProcessRuleMatchesExecutableBinaryNamePrefix() {
+    let engine = DecisionEngine()
+    let config = Config(
+      pollIntervalSeconds: 5,
+      onlyTreeRoots: false,
+      notifyOnKill: true,
+      warningThreshold: 0,
+      rules: [
+        Rule(
+          process: "openc",
+          pidFileGlob: nil,
+          metric: .memoryMB,
+          threshold: 100,
+          forSeconds: nil,
+          action: .notify,
+          signal: nil,
+          cooldownSeconds: nil
+        )
+      ]
+    )
+
+    let output = engine.evaluate(
+      config: config,
+      now: 1,
+      processes: [
+        process(
+          pid: 101,
+          ppid: 1,
+          name: "opencode",
+          command: "/usr/local/bin/opencode",
+          rssKB: 250 * 1024
+        )
+      ],
+      pidFilters: [:]
+    )
+
+    XCTAssertEqual(
+      output.tracks,
+      [
+        TrackEvent(
+          ruleProcess: "openc",
+          pid: 101,
+          metric: .memoryMB,
+          value: 250,
+          threshold: 100,
+          forSeconds: nil,
+          status: .violating
+        )
+      ]
+    )
+    XCTAssertEqual(
+      output.effects,
+      [
+        .notify(message: "openc pid=101 metric=memory_mb value=250.00 threshold=100.00")
+      ]
+    )
+    XCTAssertTrue(output.matchedAny)
+  }
+
   private func process(
     pid: Int32,
     ppid: Int32,
     name: String,
+    command: String? = nil,
     cpuPercent: Double = 0,
     rssKB: UInt64 = 0,
     elapsedSeconds: UInt64 = 0
@@ -195,7 +290,7 @@ final class DecisionEngineTests: XCTestCase {
       pid: pid,
       ppid: ppid,
       name: name,
-      command: "/usr/bin/\(name)",
+      command: command ?? "/usr/bin/\(name)",
       cpuPercent: cpuPercent,
       rssKB: rssKB,
       elapsedSeconds: elapsedSeconds
