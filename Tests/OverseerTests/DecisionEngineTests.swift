@@ -159,7 +159,7 @@ final class DecisionEngineTests: XCTestCase {
       config: config,
       now: 1,
       processes: [ignored, matched],
-      pidFilters: [0: Set([99])]
+      pidFilters: [0: freshPIDFilter(pid: 99, processStartTime: matched.startTime)]
     )
     let expectedEffects: [EffectEvent] = [
       .notify(message: "node pid=99 metric=memory_mb value=250.00 threshold=100.00")
@@ -181,6 +181,59 @@ final class DecisionEngineTests: XCTestCase {
     )
     XCTAssertEqual(output.effects, expectedEffects)
     XCTAssertTrue(output.matchedAny)
+  }
+
+  func testKillEffectsCarryStableProcessIdentityForRevalidation() {
+    let engine = DecisionEngine()
+    let config = Config(
+      pollIntervalSeconds: 5,
+      onlyTreeRoots: false,
+      notifyOnKill: true,
+      warningThreshold: 0,
+      rules: [
+        Rule(
+          process: "node",
+          pidFileGlob: nil,
+          metric: .memoryMB,
+          threshold: 100,
+          forSeconds: nil,
+          action: .kill,
+          signal: .term,
+          cooldownSeconds: nil
+        )
+      ]
+    )
+
+    let startTime = ProcessStartTime(seconds: 300, microseconds: 12)
+    let output = engine.evaluate(
+      config: config,
+      now: 1,
+      processes: [
+        process(
+          pid: 100,
+          ppid: 1,
+          name: "node",
+          command: "/usr/local/bin/node",
+          startTime: startTime,
+          rssKB: 250 * 1024
+        )
+      ],
+      pidFilters: [:]
+    )
+
+    XCTAssertEqual(
+      output.effects,
+      [
+        .kill(
+          pid: 100,
+          signal: .term,
+          processName: "node",
+          expectedIdentity: ProcessSignalIdentity(startTime: startTime, executableName: "node"),
+          message: "node pid=100 metric=memory_mb value=250.00 threshold=100.00",
+          notifyUser: true
+        )
+      ]
+    )
   }
 
   func testProcessRuleDoesNotMatchPathSubstringWhenBinaryNameDiffers() {
@@ -218,7 +271,7 @@ final class DecisionEngineTests: XCTestCase {
     XCTAssertFalse(output.matchedAny)
   }
 
-  func testProcessRuleMatchesExecutableBinaryNamePrefix() {
+  func testProcessRuleRequiresExactExecutableBinaryNameByDefault() {
     let engine = DecisionEngine()
     let config = Config(
       pollIntervalSeconds: 5,
@@ -254,27 +307,134 @@ final class DecisionEngineTests: XCTestCase {
       pidFilters: [:]
     )
 
-    XCTAssertEqual(
-      output.tracks,
-      [
-        TrackEvent(
-          ruleProcess: "openc",
-          pid: 101,
+    XCTAssertTrue(output.tracks.isEmpty)
+    XCTAssertTrue(output.effects.isEmpty)
+    XCTAssertFalse(output.matchedAny)
+  }
+
+  func testProcessRuleCanMatchFallbackNameWhenExecutablePathIsUnavailable() {
+    let engine = DecisionEngine()
+    let config = Config(
+      pollIntervalSeconds: 5,
+      onlyTreeRoots: false,
+      notifyOnKill: true,
+      warningThreshold: 0,
+      rules: [
+        Rule(
+          process: "node",
+          pidFileGlob: nil,
           metric: .memoryMB,
-          value: 250,
           threshold: 100,
           forSeconds: nil,
-          status: .violating
+          action: .notify,
+          signal: nil,
+          cooldownSeconds: nil
         )
       ]
     )
+
+    let output = engine.evaluate(
+      config: config,
+      now: 1,
+      processes: [
+        process(
+          pid: 102,
+          ppid: 1,
+          name: "",
+          command: "node",
+          nameSource: .executablePath,
+          rssKB: 250 * 1024
+        )
+      ],
+      pidFilters: [:]
+    )
+
     XCTAssertEqual(
       output.effects,
       [
-        .notify(message: "openc pid=101 metric=memory_mb value=250.00 threshold=100.00")
+        .notify(message: "node pid=102 metric=memory_mb value=250.00 threshold=100.00")
       ]
     )
     XCTAssertTrue(output.matchedAny)
+  }
+
+  func testPIDFileOnlyKillRuleDoesNotEmitKillWithoutExecutableIdentity() {
+    let engine = DecisionEngine()
+    let config = Config(
+      pollIntervalSeconds: 5,
+      onlyTreeRoots: false,
+      notifyOnKill: true,
+      warningThreshold: 0,
+      rules: [
+        Rule(
+          process: nil,
+          pidFileGlob: "/tmp/*.pid",
+          metric: .memoryMB,
+          threshold: 100,
+          forSeconds: nil,
+          action: .kill,
+          signal: .term,
+          cooldownSeconds: nil
+        )
+      ]
+    )
+
+    let startTime = ProcessStartTime(seconds: 200, microseconds: 0)
+    let output = engine.evaluate(
+      config: config,
+      now: 1,
+      processes: [
+        process(
+          pid: 103,
+          ppid: 1,
+          name: "node",
+          command: "node",
+          nameSource: .bsdComm,
+          startTime: startTime,
+          rssKB: 250 * 1024
+        )
+      ],
+      pidFilters: [0: freshPIDFilter(pid: 103, processStartTime: startTime)]
+    )
+
+    XCTAssertTrue(output.effects.isEmpty)
+    XCTAssertFalse(output.matchedAny)
+  }
+
+  func testPIDFilterRejectsPIDFileOlderThanProcessStartTime() {
+    let engine = DecisionEngine()
+    let config = Config(
+      pollIntervalSeconds: 5,
+      onlyTreeRoots: false,
+      notifyOnKill: true,
+      warningThreshold: 0,
+      rules: [
+        Rule(
+          process: nil,
+          pidFileGlob: "/tmp/*.pid",
+          metric: .memoryMB,
+          threshold: 100,
+          forSeconds: nil,
+          action: .notify,
+          signal: nil,
+          cooldownSeconds: nil
+        )
+      ]
+    )
+
+    let processStartTime = ProcessStartTime(seconds: 200, microseconds: 0)
+    let output = engine.evaluate(
+      config: config,
+      now: 1,
+      processes: [
+        process(pid: 101, ppid: 1, name: "node", startTime: processStartTime, rssKB: 250 * 1024)
+      ],
+      pidFilters: [0: stalePIDFilter(pid: 101, processStartTime: processStartTime)]
+    )
+
+    XCTAssertTrue(output.tracks.isEmpty)
+    XCTAssertTrue(output.effects.isEmpty)
+    XCTAssertFalse(output.matchedAny)
   }
 
   private func process(
@@ -282,6 +442,8 @@ final class DecisionEngineTests: XCTestCase {
     ppid: Int32,
     name: String,
     command: String? = nil,
+    nameSource: ProcessNameSource = .executablePath,
+    startTime: ProcessStartTime = ProcessStartTime(seconds: 0, microseconds: 0),
     cpuPercent: Double = 0,
     rssKB: UInt64 = 0,
     elapsedSeconds: UInt64 = 0
@@ -290,10 +452,36 @@ final class DecisionEngineTests: XCTestCase {
       pid: pid,
       ppid: ppid,
       name: name,
+      nameSource: nameSource,
       command: command ?? "/usr/bin/\(name)",
+      startTime: startTime,
       cpuPercent: cpuPercent,
       rssKB: rssKB,
       elapsedSeconds: elapsedSeconds
+    )
+  }
+
+  private func freshPIDFilter(pid: Int32, processStartTime: ProcessStartTime) -> PIDFilter {
+    PIDFilter(
+      matches: [
+        pid: PIDFileMatch(
+          pid: pid,
+          filePath: "/tmp/\(pid).pid",
+          modifiedAt: Date(timeIntervalSince1970: processStartTime.timeIntervalSince1970 + 1)
+        )
+      ]
+    )
+  }
+
+  private func stalePIDFilter(pid: Int32, processStartTime: ProcessStartTime) -> PIDFilter {
+    PIDFilter(
+      matches: [
+        pid: PIDFileMatch(
+          pid: pid,
+          filePath: "/tmp/\(pid).pid",
+          modifiedAt: Date(timeIntervalSince1970: processStartTime.timeIntervalSince1970 - 1)
+        )
+      ]
     )
   }
 }

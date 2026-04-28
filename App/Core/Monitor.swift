@@ -98,8 +98,8 @@ final class MonitorRuntime {
     case .notify(let message):
       notifyIfNeeded(kind: .monitor, message: message)
       logWarn("notified: \(message)")
-    case .kill(let pid, let signal, let processName, let message, let notifyUser):
-      try signalSender.send(pid: pid, signal: signal)
+    case .kill(let pid, let signal, let processName, let expectedIdentity, let message, let notifyUser):
+      try signalSender.send(pid: pid, signal: signal, expectedIdentity: expectedIdentity)
       logWarn("killed \(processName) (pid \(pid)) because \(message)")
       if notifyUser {
         notifyIfNeeded(kind: .kill, message: message)

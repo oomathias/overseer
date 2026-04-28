@@ -48,4 +48,85 @@ final class SelfUpdateTests: XCTestCase {
 
     XCTAssertEqual(resolvedPath, "/Users/test/project/.build/debug/overseer")
   }
+
+  func testUpdateDownloadsCurrentInstallerScript() throws {
+    let root = try makeTempDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    var downloadedURL: URL?
+    let manager = SelfUpdateManager(
+      environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
+      temporaryDirectory: root,
+      executablePathResolver: { root.appendingPathComponent("bin/overseer").path },
+      downloadScript: { sourceURL, destinationURL in
+        downloadedURL = sourceURL
+        try "exit 0\n".write(to: destinationURL, atomically: true, encoding: .utf8)
+      }
+    )
+
+    _ = try manager.updateToLatest(stdoutHandler: nil, stderrHandler: nil)
+
+    let source = try XCTUnwrap(downloadedURL)
+    XCTAssertEqual(source.absoluteString, "https://raw.githubusercontent.com/oomathias/overseer/main/install")
+  }
+
+  func testUpdateIgnoresBashEnvironmentFromCaller() throws {
+    let root = try makeTempDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let bashEnvURL = root.appendingPathComponent("bash-env")
+    try "echo poisoned >&2\nexit 77\n".write(to: bashEnvURL, atomically: true, encoding: .utf8)
+
+    let manager = SelfUpdateManager(
+      environment: [
+        "BASH_ENV": bashEnvURL.path,
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+      ],
+      temporaryDirectory: root,
+      executablePathResolver: { root.appendingPathComponent("bin/overseer").path },
+      downloadScript: { _, destinationURL in
+        try "exit 0\n".write(to: destinationURL, atomically: true, encoding: .utf8)
+      }
+    )
+
+    XCTAssertNoThrow(try manager.updateToLatest(stdoutHandler: nil, stderrHandler: nil))
+  }
+
+  func testUpdateUsesTrustedPathForInstallerCommands() throws {
+    let root = try makeTempDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let poisonedBin = root.appendingPathComponent("poisoned-bin", isDirectory: true)
+    try FileManager.default.createDirectory(at: poisonedBin, withIntermediateDirectories: true)
+    let poisonedAwk = poisonedBin.appendingPathComponent("awk")
+    try """
+      #!/bin/sh
+      echo poisoned awk >&2
+      exit 77
+      """.write(to: poisonedAwk, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes(
+      [.posixPermissions: NSNumber(value: Int16(0o755))],
+      ofItemAtPath: poisonedAwk.path
+    )
+
+    let manager = SelfUpdateManager(
+      environment: [
+        "PATH": "\(poisonedBin.path):/usr/bin:/bin:/usr/sbin:/sbin"
+      ],
+      temporaryDirectory: root,
+      executablePathResolver: { root.appendingPathComponent("bin/overseer").path },
+      downloadScript: { _, destinationURL in
+        try "awk 'BEGIN { exit 0 }'\n".write(to: destinationURL, atomically: true, encoding: .utf8)
+      }
+    )
+
+    XCTAssertNoThrow(try manager.updateToLatest(stdoutHandler: nil, stderrHandler: nil))
+  }
+
+  private func makeTempDirectory() throws -> URL {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("overseer-self-update-tests-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    return root
+  }
 }

@@ -13,6 +13,7 @@ func loadConfig(from path: String) throws -> Config {
     }
   }
   let fileURL = URL(fileURLWithPath: absolutePath)
+
   let data: Data
   do {
     data = try Data(contentsOf: fileURL)

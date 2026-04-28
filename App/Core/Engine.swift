@@ -18,7 +18,7 @@ final class DecisionEngine {
     config: Config,
     now: UInt64,
     processes: [ProcessInfo],
-    pidFilters: [Int: Set<Int32>]
+    pidFilters: [Int: PIDFilter]
   ) -> DecisionOutput {
     var tracks: [TrackEvent] = []
     var effects: [EffectEvent] = []
@@ -34,7 +34,7 @@ final class DecisionEngine {
 
     for process in processes {
       for (ruleIndex, rule) in config.rules.enumerated() {
-        if let filter = pidFilters[ruleIndex], !filter.contains(process.pid) {
+        if let filter = pidFilters[ruleIndex], !filter.contains(process: process) {
           continue
         }
         if !processMatches(ruleProcess: rule.process, process: process) {
@@ -43,6 +43,9 @@ final class DecisionEngine {
         if needsTreeRootLookup,
           !isTreeRootForRule(ruleProcess: rule.process, process: process, processByPID: processByPID)
         {
+          continue
+        }
+        if rule.action == .kill, isAllProcessRule(rule.process) {
           continue
         }
 
@@ -122,6 +125,7 @@ final class DecisionEngine {
               pid: process.pid,
               signal: rule.signal ?? .term,
               processName: process.name,
+              expectedIdentity: signalIdentity(for: process),
               message: message,
               notifyUser: config.notifyOnKill
             )
@@ -145,8 +149,16 @@ private func processMatches(ruleProcess: String?, process: ProcessInfo) -> Bool 
     return true
   }
 
-  return ruleName.caseInsensitiveCompare(process.name) == .orderedSame
-    || startsWithIgnoreCase(process.name, prefix: ruleName)
+  if ruleName.caseInsensitiveCompare(process.name) == .orderedSame {
+    return true
+  }
+
+  guard normalizedProcessFilter(process.name) == nil else {
+    return false
+  }
+
+  let commandName = (process.command as NSString).lastPathComponent
+  return ruleName.caseInsensitiveCompare(commandName) == .orderedSame
 }
 
 private func isTreeRootForRule(ruleProcess: String?, process: ProcessInfo, processByPID: [Int32: ProcessInfo]) -> Bool {
@@ -185,13 +197,6 @@ private func ruleProcessLabel(_ ruleProcess: String?) -> String {
   normalizedProcessFilter(ruleProcess) ?? "*"
 }
 
-private func startsWithIgnoreCase(_ value: String, prefix: String) -> Bool {
-  if prefix.count > value.count {
-    return false
-  }
-  return String(value.prefix(prefix.count)).caseInsensitiveCompare(prefix) == .orderedSame
-}
-
 private func currentMetricValue(metric: Metric, process: ProcessInfo) -> Double {
   switch metric {
   case .cpuPercent:
@@ -201,6 +206,18 @@ private func currentMetricValue(metric: Metric, process: ProcessInfo) -> Double 
   case .runtimeSeconds:
     return Double(process.elapsedSeconds)
   }
+}
+
+private func signalIdentity(for process: ProcessInfo) -> ProcessSignalIdentity {
+  let executableName: String?
+  switch process.nameSource {
+  case .executablePath:
+    executableName = normalizedProcessFilter(process.name)
+  case .bsdComm:
+    executableName = nil
+  }
+
+  return ProcessSignalIdentity(startTime: process.startTime, executableName: executableName)
 }
 
 private func isWarningActive(warningThreshold: UInt8, threshold: Double, current: Double) -> Bool {

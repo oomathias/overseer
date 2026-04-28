@@ -27,6 +27,24 @@ enum NotificationKind {
   case monitor
 }
 
+struct ProcessStartTime: Equatable, Hashable {
+  let seconds: Int64
+  let microseconds: Int64
+
+  var timeIntervalSince1970: TimeInterval {
+    TimeInterval(seconds) + (TimeInterval(microseconds) / 1_000_000.0)
+  }
+
+  var epochSeconds: UInt64 {
+    UInt64(max(0, seconds))
+  }
+}
+
+enum ProcessNameSource {
+  case bsdComm
+  case executablePath
+}
+
 struct Rule: Decodable {
   let process: String?
   let pidFileGlob: String?
@@ -98,6 +116,12 @@ struct Config: Decodable {
       if rule.threshold < 0 {
         throw OverseerError.invalidConfig("rule \(index) has negative threshold")
       }
+      if rule.action == .kill, rule.threshold <= 0 {
+        throw OverseerError.invalidConfig("rule \(index) kill threshold must be greater than zero")
+      }
+      if rule.action == .kill, normalizedProcessFilter(rule.process) == nil {
+        throw OverseerError.invalidConfig("rule \(index) kill action requires a process")
+      }
       if let pidFileGlob = normalizedProcessFilter(rule.pidFileGlob),
         hasUnresolvedUserPath(pidFileGlob)
       {
@@ -111,7 +135,9 @@ struct ProcessInfo {
   let pid: Int32
   let ppid: Int32
   let name: String
+  let nameSource: ProcessNameSource
   let command: String
+  let startTime: ProcessStartTime
   let cpuPercent: Double
   let rssKB: UInt64
   let elapsedSeconds: UInt64
@@ -135,7 +161,19 @@ struct TrackEvent: Equatable {
 enum EffectEvent: Equatable {
   case warning(message: String)
   case notify(message: String)
-  case kill(pid: Int32, signal: KillSignal, processName: String, message: String, notifyUser: Bool)
+  case kill(
+    pid: Int32,
+    signal: KillSignal,
+    processName: String,
+    expectedIdentity: ProcessSignalIdentity,
+    message: String,
+    notifyUser: Bool
+  )
+}
+
+struct ProcessSignalIdentity: Equatable {
+  let startTime: ProcessStartTime
+  let executableName: String?
 }
 
 struct DecisionOutput: Equatable {

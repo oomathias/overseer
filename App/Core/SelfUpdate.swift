@@ -8,6 +8,7 @@ final class SelfUpdateManager {
   typealias DownloadScript = (_ sourceURL: URL, _ destinationURL: URL) throws -> Void
 
   static let installerURL = URL(string: "https://raw.githubusercontent.com/oomathias/overseer/main/install")!
+  private static let installerPATH = "/usr/bin:/bin:/usr/sbin:/sbin"
 
   private let commandRunner: CommandRunner
   private let environment: [String: String]
@@ -52,7 +53,7 @@ final class SelfUpdateManager {
     let scriptURL = workDir.appendingPathComponent("install")
     try downloadScript(Self.installerURL, scriptURL)
 
-    var installerEnvironment = environment
+    var installerEnvironment = Self.sanitizedInstallerEnvironment(from: environment)
     installerEnvironment["OVERSEER_INSTALL_DIR"] = installDir
 
     let output = try commandRunner.run(
@@ -115,5 +116,19 @@ final class SelfUpdateManager {
     } catch {
       throw OverseerError.io("failed to write install script: \(error.localizedDescription)")
     }
+  }
+
+  private static func sanitizedInstallerEnvironment(from environment: [String: String]) -> [String: String] {
+    var sanitized: [String: String] = [:]
+    sanitized["PATH"] = Self.installerPATH
+
+    if let home = environment["HOME"] {
+      sanitized["HOME"] = home
+    }
+    if let tmpdir = environment["TMPDIR"] {
+      sanitized["TMPDIR"] = tmpdir
+    }
+
+    return sanitized
   }
 }

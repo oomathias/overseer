@@ -65,7 +65,36 @@ struct AppleNotifier {
 }
 
 struct DarwinSignalSender {
-  func send(pid: Int32, signal: KillSignal) throws {
+  typealias IdentityResolver = (Int32) -> ProcessSignalIdentity?
+  typealias KillFunction = (pid_t, Int32) -> Int32
+
+  private let identityResolver: IdentityResolver
+  private let killFunction: KillFunction
+
+  init(
+    identityResolver: @escaping IdentityResolver = DarwinSignalSender.currentIdentity(pid:),
+    killFunction: @escaping KillFunction = Darwin.kill
+  ) {
+    self.identityResolver = identityResolver
+    self.killFunction = killFunction
+  }
+
+  func send(pid: Int32, signal: KillSignal, expectedIdentity: ProcessSignalIdentity) throws {
+    guard let currentIdentity = identityResolver(pid) else {
+      throw OverseerError.system("refusing to send \(signal.rawValue) to pid \(pid): process identity unavailable")
+    }
+    guard currentIdentity.startTime == expectedIdentity.startTime else {
+      throw OverseerError.system("refusing to send \(signal.rawValue) to pid \(pid): process start time changed")
+    }
+    if let expectedExecutableName = expectedIdentity.executableName {
+      guard
+        let currentExecutableName = currentIdentity.executableName,
+        currentExecutableName.caseInsensitiveCompare(expectedExecutableName) == .orderedSame
+      else {
+        throw OverseerError.system("refusing to send \(signal.rawValue) to pid \(pid): executable changed")
+      }
+    }
+
     let rawSignal: Int32
     switch signal {
     case .term:
@@ -76,9 +105,42 @@ struct DarwinSignalSender {
       rawSignal = SIGINT
     }
 
-    if Darwin.kill(pid_t(pid), rawSignal) != 0 {
+    if killFunction(pid_t(pid), rawSignal) != 0 {
       let message = String(cString: strerror(errno))
       throw OverseerError.system("failed to send \(signal.rawValue) to pid \(pid): \(message)")
     }
+  }
+
+  private static func currentIdentity(pid: Int32) -> ProcessSignalIdentity? {
+    guard let startTime = currentStartTime(pid: pid) else {
+      return nil
+    }
+    return ProcessSignalIdentity(startTime: startTime, executableName: currentExecutableName(pid: pid))
+  }
+
+  private static func currentStartTime(pid: Int32) -> ProcessStartTime? {
+    var info = proc_bsdinfo()
+    let filled = withUnsafeMutableBytes(of: &info) { bytes in
+      proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, bytes.baseAddress, Int32(bytes.count))
+    }
+    if filled != Int32(MemoryLayout<proc_bsdinfo>.size) {
+      return nil
+    }
+    return ProcessStartTime(
+      seconds: max(Int64(0), Int64(clamping: info.pbi_start_tvsec)),
+      microseconds: max(Int64(0), Int64(clamping: info.pbi_start_tvusec))
+    )
+  }
+
+  private static func currentExecutableName(pid: Int32) -> String? {
+    var pathBuffer = [CChar](repeating: 0, count: Int(PROC_PIDPATHINFO_SIZE))
+    let copied = proc_pidpath(pid, &pathBuffer, UInt32(pathBuffer.count))
+    if copied <= 0 {
+      return nil
+    }
+    let raw = pathBuffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+    let path = String(decoding: raw, as: UTF8.self)
+    let name = (path as NSString).lastPathComponent
+    return name.isEmpty ? nil : name
   }
 }
