@@ -64,7 +64,8 @@ final class ProcessSampler {
         includeCommandPath: includeCommandPath,
         nextCache: &nextExecutablePathCache
       )
-      let processName = includeCommandPath
+      let processName =
+        includeCommandPath
         ? executablePath.flatMap(executableName(from:)) ?? ""
         : bsdProcessName
       let processNameSource: ProcessNameSource = includeCommandPath ? .executablePath : .bsdComm

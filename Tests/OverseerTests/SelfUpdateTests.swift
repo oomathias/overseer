@@ -100,10 +100,10 @@ final class SelfUpdateTests: XCTestCase {
     try FileManager.default.createDirectory(at: poisonedBin, withIntermediateDirectories: true)
     let poisonedAwk = poisonedBin.appendingPathComponent("awk")
     try """
-      #!/bin/sh
-      echo poisoned awk >&2
-      exit 77
-      """.write(to: poisonedAwk, atomically: true, encoding: .utf8)
+    #!/bin/sh
+    echo poisoned awk >&2
+    exit 77
+    """.write(to: poisonedAwk, atomically: true, encoding: .utf8)
     try FileManager.default.setAttributes(
       [.posixPermissions: NSNumber(value: Int16(0o755))],
       ofItemAtPath: poisonedAwk.path
